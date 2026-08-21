@@ -14,7 +14,6 @@ jobs:
       - name: Lighthouse SEO sur index.html
         run: |
           set -euo pipefail
-          echo 'Audit exact de https://dieppeoratoriens.com/index.html'
           npx --yes lighthouse https://dieppeoratoriens.com/index.html \
             --quiet \
             --chrome-flags="--headless --no-sandbox --disable-gpu" \
