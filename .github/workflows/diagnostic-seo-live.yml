@@ -12,13 +12,27 @@ jobs:
   diagnostic:
     runs-on: ubuntu-latest
     steps:
-      - name: Derniers runs main
+      - name: Attendre le déploiement SEO sur main
         env:
           GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SEO_SHA: 66bee01bfe153085e7191b547715020963e74a21
         run: |
-          gh run list --workflow deploy-pages.yml --branch main --limit 5 --json databaseId,event,status,conclusion,createdAt,url,headSha
-      - name: Contrôler le site public
+          set -euo pipefail
+          RUN_ID=""
+          for _ in {1..24}; do
+            RUN_ID="$(gh run list --repo "$REPOSITORY" --workflow deploy-pages.yml --branch main --limit 20 --json databaseId,headSha,event --jq ".[] | select(.headSha == \"$SEO_SHA\") | .databaseId" | head -1)"
+            [ -n "$RUN_ID" ] && break
+            sleep 5
+          done
+          test -n "$RUN_ID"
+          echo "Production run: $RUN_ID"
+          gh run watch --repo "$REPOSITORY" "$RUN_ID" --exit-status
+          gh run view --repo "$REPOSITORY" "$RUN_ID" --json status,conclusion,url,headSha
+
+      - name: Contrôler le HTML public
         run: |
+          set -euo pipefail
           curl -sSIL --max-time 20 https://dieppeoratoriens.com/ | sed -n '1,20p'
           curl -sSL --max-time 20 https://dieppeoratoriens.com/ -o /tmp/home.html
           grep -o '<title>[^<]*</title>' /tmp/home.html | head -1
@@ -28,3 +42,23 @@ jobs:
           grep -q 'hreflang="en"' /tmp/home.html
           grep -q '/assets/photos/photo-1.webp' /tmp/home.html
           echo 'SEO live: OK'
+
+      - name: Lighthouse réel — mobile
+        run: |
+          set -euo pipefail
+          npx --yes lighthouse https://dieppeoratoriens.com/ \
+            --quiet \
+            --chrome-flags="--headless --no-sandbox --disable-gpu" \
+            --only-categories=performance,accessibility,best-practices,seo \
+            --output=json \
+            --output-path=/tmp/lighthouse.json
+          node <<'NODE'
+          const r=require('/tmp/lighthouse.json');
+          const cats=r.categories;
+          const out={};
+          for (const k of ['performance','accessibility','best-practices','seo']) out[k]=Math.round(cats[k].score*100);
+          console.log('LIGHTHOUSE_SCORES='+JSON.stringify(out));
+          const failed=Object.values(r.audits).filter(a=>a.score!==null && a.score<1 && ['binary','numeric'].includes(a.scoreDisplayMode)).sort((a,b)=>(a.score??1)-(b.score??1));
+          for (const a of failed.slice(0,30)) console.log(`AUDIT ${a.id} score=${a.score} — ${a.title}`);
+          if (Object.values(out).some(v=>v<100)) process.exit(2);
+          NODE
