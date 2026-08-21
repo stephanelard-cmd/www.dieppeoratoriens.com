@@ -45,7 +45,7 @@ jobs:
       - name: Tester le calendrier et les scripts
         run: |
           python -m unittest discover -s source/tests -p "test_*.py"
-          python -m py_compile source/scripts/build_calendar.py source/scripts/fetch_photos.py
+          python -m py_compile source/scripts/build_calendar.py source/scripts/fetch_photos.py .github/scripts/seo_optimize.py
 
       - name: Construire le site statique
         run: |
@@ -85,6 +85,21 @@ jobs:
         env:
           SITE_ROOT: ${{ github.workspace }}/_site
         run: python source/scripts/fetch_photos.py
+
+      - name: Optimiser SEO, Core Web Vitals et accessibilité
+        run: |
+          python .github/scripts/seo_optimize.py
+          grep -q "Location appartement Dieppe port" _site/index.html
+          grep -q '"LodgingBusiness"' _site/index.html
+          grep -q 'hreflang="en"' _site/index.html
+          grep -q 'noindex,follow' _site/404.html
+          grep -q 'role="gridcell"' _site/assets/js/calendar.js
+          ! grep -q 'loadPhotos' _site/assets/js/site.js
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          ET.parse('_site/sitemap.xml')
+          print('sitemap.xml valide')
+          PY
 
       - name: Vérifier la confidentialité des flux iCal
         run: |
