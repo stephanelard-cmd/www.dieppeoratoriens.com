@@ -11,27 +11,38 @@ jobs:
   diagnostic:
     runs-on: ubuntu-latest
     steps:
-      - name: Lighthouse SEO sur index.html
+      - name: Attendre le correctif public
+        run: |
+          set -euo pipefail
+          for _ in {1..30}; do
+            curl -sSL --max-time 20 https://dieppeoratoriens.com/index.html -o /tmp/index.html || true
+            if grep -q 'location.pathname==="/index.html"' /tmp/index.html 2>/dev/null; then
+              echo 'CORRECTIF_INDEX_PUBLIC=OK'
+              exit 0
+            fi
+            sleep 5
+          done
+          echo 'Le correctif /index.html n’est pas encore public' >&2
+          exit 1
+
+      - name: Lighthouse complet sur index.html
         run: |
           set -euo pipefail
           npx --yes lighthouse https://dieppeoratoriens.com/index.html \
             --quiet \
             --chrome-flags="--headless --no-sandbox --disable-gpu" \
-            --only-categories=seo \
+            --only-categories=performance,accessibility,best-practices,seo \
             --output=json \
-            --output-path=/tmp/seo-index.json
+            --output-path=/tmp/lighthouse-index.json
           node <<'NODE'
-          const r=require('/tmp/seo-index.json');
-          console.log('SEO_INDEX='+Math.round(r.categories.seo.score*100));
+          const r=require('/tmp/lighthouse-index.json');
+          const out={};
+          for (const k of ['performance','accessibility','best-practices','seo']) out[k]=Math.round(r.categories[k].score*100);
+          console.log('LIGHTHOUSE_INDEX='+JSON.stringify(out));
           console.log('FINAL_URL='+r.finalUrl);
           for (const ref of r.categories.seo.auditRefs) {
             const a=r.audits[ref.id];
-            console.log(`SEO_AUDIT ${ref.id} score=${a.score} mode=${a.scoreDisplayMode} title=${a.title}`);
-            if (a.score !== null && a.score < 1) {
-              console.log(`FAIL ${ref.id}: ${a.title}`);
-              if (a.displayValue) console.log(`DISPLAY ${a.displayValue}`);
-              if (a.explanation) console.log(`EXPLANATION ${a.explanation}`);
-              if (a.details && a.details.items) console.log('DETAILS '+JSON.stringify(a.details.items).slice(0,4000));
-            }
+            if (a.score !== null && a.score < 1) console.log(`SEO_FAIL ${ref.id}: ${a.title} — ${a.explanation||a.displayValue||''}`);
           }
+          if (out.seo < 100) process.exit(2);
           NODE
