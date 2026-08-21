@@ -91,6 +91,25 @@ jobs:
           ! grep -R --line-number --fixed-strings 'ical.booking.com' _site
           ! grep -R --line-number --fixed-strings 'calendar/ical/' _site
 
+      - name: Diagnostiquer le site actuellement publié
+        if: github.event_name == 'pull_request'
+        run: |
+          set +e
+          echo '=== DNS A : dieppeoratoriens.com ==='
+          getent ahostsv4 dieppeoratoriens.com || true
+          echo
+          echo '=== DNS : www.dieppeoratoriens.com ==='
+          getent ahostsv4 www.dieppeoratoriens.com || true
+          echo
+          echo '=== GitHub Pages direct (sans suivre la redirection) ==='
+          curl -sSI --max-time 20 https://stephanelard-cmd.github.io/www.dieppeoratoriens.com/ || true
+          echo
+          echo '=== Domaine public en HTTP ==='
+          curl -sSI --max-time 20 http://dieppeoratoriens.com/ || true
+          echo
+          echo '=== Domaine public en HTTPS ==='
+          curl -sSI --max-time 20 https://dieppeoratoriens.com/ || true
+
       - name: Configurer GitHub Pages
         if: github.event_name != 'pull_request'
         uses: actions/configure-pages@v5
