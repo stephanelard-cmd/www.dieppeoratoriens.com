@@ -1,0 +1,29 @@
+name: Déclencher ponctuellement le déploiement
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  actions: write
+  issues: write
+
+jobs:
+  dispatch:
+    if: github.event.issue.title == 'Déployer dieppeoratoriens.com'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Déclencher le workflow principal sur main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          gh api --method POST \
+            "repos/${REPOSITORY}/actions/workflows/deploy-pages.yml/dispatches" \
+            -f ref=main
+
+      - name: Fermer la demande ponctuelle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: gh issue close "$ISSUE_NUMBER" --comment "Déploiement demandé."
