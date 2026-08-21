@@ -31,28 +31,41 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Récupérer et diagnostiquer la source validée du site
+      - name: Récupérer et réparer la source validée du site
         run: |
           git clone --depth 1 --branch dieppeoratoriens-site \
             https://github.com/stephanelard-cmd/drelard.com.git staging
           python - <<'PY'
-          import base64, glob, pathlib, string
+          import base64, glob, io, pathlib, string, zipfile
+
           allowed = set(string.ascii_letters + string.digits + '+/=')
-          out = bytearray()
-          for name in sorted(glob.glob('staging/package/site.zip.b64.*')):
-              raw = pathlib.Path(name).read_text(encoding='utf-8')
-              clean = ''.join(ch for ch in raw if ch in allowed)
-              padded = clean + '=' * (-len(clean) % 4)
-              print(pathlib.Path(name).name, 'raw=', len(raw), 'clean=', len(clean), 'start=', clean[:12], 'end=', clean[-12:])
+          names = sorted(glob.glob('staging/package/site.zip.b64.*'))
+          parts = [''.join(ch for ch in pathlib.Path(name).read_text(encoding='utf-8') if ch in allowed) for name in names]
+          bad = next((i for i, part in enumerate(parts) if len(part) % 4 == 1), None)
+          if bad is None:
+              candidates = [(None, ''.join(parts))]
+          else:
+              prefix = ''.join(parts[:bad])
+              suffix = ''.join(parts[bad + 1:])
+              candidates = ((i, prefix + parts[bad][:i] + parts[bad][i + 1:] + suffix) for i in range(len(parts[bad])))
+
+          repaired = None
+          removed = None
+          for index, encoded in candidates:
               try:
-                  decoded = base64.b64decode(padded, validate=False)
-              except Exception as exc:
-                  print('DECODE_ERROR', type(exc).__name__, str(exc))
+                  data = base64.b64decode(encoded, validate=True)
+                  with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                      if archive.testzip() is None and 'index.html' in archive.namelist():
+                          repaired = data
+                          removed = index
+                          break
+              except Exception:
                   continue
-              print('decoded=', len(decoded), 'magic=', decoded[:4].hex(), 'tail=', decoded[-4:].hex())
-              out.extend(decoded)
-          pathlib.Path('site.zip').write_bytes(out)
-          print('combined=', len(out), 'head=', bytes(out[:4]).hex(), 'tail=', bytes(out[-4:]).hex())
+
+          if repaired is None:
+              raise SystemExit('Impossible de reconstruire un ZIP valide à partir des fragments source.')
+          pathlib.Path('site.zip').write_bytes(repaired)
+          print(f'ZIP réparé : {len(repaired)} octets ; caractère retiré dans le fragment {bad} à la position {removed}.')
           PY
           unzip -tq site.zip
           mkdir -p source
