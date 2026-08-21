@@ -56,10 +56,13 @@ jobs:
             --exclude='tests/' \
             --exclude='README.md' \
             source/ _site/
+          cp googlefec5e1e106c9c180.html _site/googlefec5e1e106c9c180.html
           test -f _site/index.html
           test -f _site/disponibilites.html
           test -f _site/avis-localisation.html
           test -f _site/classement-equipements.html
+          test -f _site/googlefec5e1e106c9c180.html
+          grep -q "google-site-verification: googlefec5e1e106c9c180.html" _site/googlefec5e1e106c9c180.html
           test "$(tr -d '\r\n' < _site/CNAME)" = "dieppeoratoriens.com"
           grep -q "31 octobre 2024" _site/classement-equipements.html
           grep -q "153 / 160" _site/classement-equipements.html
