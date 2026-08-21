@@ -16,7 +16,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          SEO_SHA: 5719cde0de415366f03c9c1aca0f696f0e751633
+          SEO_SHA: 15f360054052134c2bdc45ffb47102d412f6c740
         run: |
           set -euo pipefail
           RUN_ID=""
@@ -40,8 +40,10 @@ jobs:
           grep -q 'Location appartement Dieppe port' /tmp/home.html
           grep -q 'LodgingBusiness' /tmp/home.html
           grep -q 'hreflang="en"' /tmp/home.html
-          grep -q '/assets/photos/photo-1.webp' /tmp/home.html
-          echo 'SEO live: OK'
+          grep -q 'hero-480.webp' /tmp/home.html
+          ! grep -q '/assets/css/site.css' /tmp/home.html
+          ! grep -q '/assets/js/site.js' /tmp/home.html
+          echo 'SEO/performance live: OK'
 
       - name: Lighthouse réel — mobile
         run: |
@@ -58,6 +60,9 @@ jobs:
           const out={};
           for (const k of ['performance','accessibility','best-practices','seo']) out[k]=Math.round(cats[k].score*100);
           console.log('LIGHTHOUSE_SCORES='+JSON.stringify(out));
+          for (const id of ['first-contentful-paint','largest-contentful-paint','speed-index','total-blocking-time','cumulative-layout-shift','server-response-time']) {
+            const a=r.audits[id]; if(a) console.log(`METRIC ${id}: ${a.displayValue||a.numericValue} score=${a.score}`);
+          }
           const failed=Object.values(r.audits).filter(a=>a.score!==null && a.score<1 && ['binary','numeric'].includes(a.scoreDisplayMode)).sort((a,b)=>(a.score??1)-(b.score??1));
           for (const a of failed.slice(0,30)) console.log(`AUDIT ${a.id} score=${a.score} — ${a.title}`);
           if (Object.values(out).some(v=>v<100)) process.exit(2);
