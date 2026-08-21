@@ -31,14 +31,29 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Récupérer la source validée du site
+      - name: Récupérer et diagnostiquer la source validée du site
         run: |
           git clone --depth 1 --branch dieppeoratoriens-site \
             https://github.com/stephanelard-cmd/drelard.com.git staging
-          : > site.zip
-          for part in staging/package/site.zip.b64.*; do
-            base64 --decode --ignore-garbage "$part" >> site.zip
-          done
+          python - <<'PY'
+          import base64, glob, pathlib, string
+          allowed = set(string.ascii_letters + string.digits + '+/=')
+          out = bytearray()
+          for name in sorted(glob.glob('staging/package/site.zip.b64.*')):
+              raw = pathlib.Path(name).read_text(encoding='utf-8')
+              clean = ''.join(ch for ch in raw if ch in allowed)
+              padded = clean + '=' * (-len(clean) % 4)
+              print(pathlib.Path(name).name, 'raw=', len(raw), 'clean=', len(clean), 'start=', clean[:12], 'end=', clean[-12:])
+              try:
+                  decoded = base64.b64decode(padded, validate=False)
+              except Exception as exc:
+                  print('DECODE_ERROR', type(exc).__name__, str(exc))
+                  continue
+              print('decoded=', len(decoded), 'magic=', decoded[:4].hex(), 'tail=', decoded[-4:].hex())
+              out.extend(decoded)
+          pathlib.Path('site.zip').write_bytes(out)
+          print('combined=', len(out), 'head=', bytes(out[:4]).hex(), 'tail=', bytes(out[-4:]).hex())
+          PY
           unzip -tq site.zip
           mkdir -p source
           unzip -q site.zip -d source
