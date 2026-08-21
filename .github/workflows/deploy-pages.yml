@@ -35,7 +35,7 @@ jobs:
         run: |
           git clone --depth 1 --branch dieppeoratoriens-site \
             https://github.com/stephanelard-cmd/drelard.com.git staging
-          cat staging/package/site.zip.b64.* | base64 --decode > site.zip
+          cat staging/package/site.zip.b64.* | base64 --decode --ignore-garbage > site.zip
           unzip -tq site.zip
           mkdir -p source
           unzip -q site.zip -d source
