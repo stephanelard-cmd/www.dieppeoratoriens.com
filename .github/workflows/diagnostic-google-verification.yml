@@ -1,0 +1,28 @@
+name: Diagnostic Google verification
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Vérifier le fichier Google publié
+        run: |
+          set -euo pipefail
+          for _ in {1..24}; do
+            code=$(curl -sS -o /tmp/google.html -w '%{http_code}' --max-time 20 https://dieppeoratoriens.com/googlefec5e1e106c9c180.html || true)
+            if [ "$code" = "200" ] && grep -qx 'google-site-verification: googlefec5e1e106c9c180.html' /tmp/google.html; then
+              echo "GOOGLE_VERIFICATION_OK"
+              cat /tmp/google.html
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Le fichier de validation Google n'est pas encore servi correctement" >&2
+          [ -f /tmp/google.html ] && cat /tmp/google.html >&2 || true
+          exit 1
