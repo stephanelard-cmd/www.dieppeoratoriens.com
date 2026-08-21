@@ -16,7 +16,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          SEO_SHA: 66bee01bfe153085e7191b547715020963e74a21
+          SEO_SHA: 5719cde0de415366f03c9c1aca0f696f0e751633
         run: |
           set -euo pipefail
           RUN_ID=""
