@@ -11,6 +11,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
   pages: write
   id-token: write
@@ -93,8 +94,17 @@ jobs:
 
       - name: Diagnostiquer le site actuellement publié
         if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set +e
+          echo '=== Derniers runs de déploiement sur main ==='
+          gh run list \
+            --workflow deploy-pages.yml \
+            --branch main \
+            --limit 8 \
+            --json databaseId,event,status,conclusion,createdAt,url,headSha || true
+          echo
           echo '=== DNS A : dieppeoratoriens.com ==='
           getent ahostsv4 dieppeoratoriens.com || true
           echo
