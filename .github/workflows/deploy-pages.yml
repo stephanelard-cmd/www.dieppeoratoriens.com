@@ -11,6 +11,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
   pages: write
   id-token: write
@@ -25,6 +26,17 @@ jobs:
     steps:
       - name: Récupérer le dépôt
         uses: actions/checkout@v4
+
+      - name: Lister les derniers runs de production
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run list \
+            --workflow deploy-pages.yml \
+            --branch main \
+            --limit 5 \
+            --json databaseId,event,status,conclusion,createdAt,url,headSha
 
       - name: Préparer Python
         uses: actions/setup-python@v5
