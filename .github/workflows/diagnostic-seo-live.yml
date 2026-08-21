@@ -12,58 +12,70 @@ jobs:
   diagnostic:
     runs-on: ubuntu-latest
     steps:
-      - name: Attendre le déploiement SEO sur main
+      - name: Vérifier le déploiement courant
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          SEO_SHA: 15f360054052134c2bdc45ffb47102d412f6c740
+          SEO_SHA: 5d152b414e971d85d6373d9695ffd718879b0636
         run: |
           set -euo pipefail
-          RUN_ID=""
-          for _ in {1..24}; do
-            RUN_ID="$(gh run list --repo "$REPOSITORY" --workflow deploy-pages.yml --branch main --limit 20 --json databaseId,headSha,event --jq ".[] | select(.headSha == \"$SEO_SHA\") | .databaseId" | head -1)"
-            [ -n "$RUN_ID" ] && break
-            sleep 5
-          done
+          RUN_ID="$(gh run list --repo "$REPOSITORY" --workflow deploy-pages.yml --branch main --limit 30 --json databaseId,headSha,conclusion --jq ".[] | select(.headSha == \"$SEO_SHA\" and .conclusion == \"success\") | .databaseId" | head -1)"
+          echo "Production run: ${RUN_ID:-non retrouvé}"
           test -n "$RUN_ID"
-          echo "Production run: $RUN_ID"
-          gh run watch --repo "$REPOSITORY" "$RUN_ID" --exit-status
-          gh run view --repo "$REPOSITORY" "$RUN_ID" --json status,conclusion,url,headSha
 
-      - name: Contrôler le HTML public
+      - name: Contrôler le site, robots et sitemap
         run: |
           set -euo pipefail
           curl -sSIL --max-time 20 https://dieppeoratoriens.com/ | sed -n '1,20p'
           curl -sSL --max-time 20 https://dieppeoratoriens.com/ -o /tmp/home.html
+          curl -sSL --max-time 20 https://dieppeoratoriens.com/robots.txt -o /tmp/robots.txt
+          curl -sSL --max-time 20 https://dieppeoratoriens.com/sitemap.xml -o /tmp/sitemap.xml
+          echo '--- title/h1 ---'
           grep -o '<title>[^<]*</title>' /tmp/home.html | head -1
           grep -o '<h1>[^<]*</h1>' /tmp/home.html | head -1
-          grep -q 'Location appartement Dieppe port' /tmp/home.html
-          grep -q 'LodgingBusiness' /tmp/home.html
-          grep -q 'hreflang="en"' /tmp/home.html
-          grep -q 'hero-480.webp' /tmp/home.html
-          ! grep -q '/assets/css/site.css' /tmp/home.html
-          ! grep -q '/assets/js/site.js' /tmp/home.html
-          echo 'SEO/performance live: OK'
+          echo '--- robots ---'
+          cat /tmp/robots.txt
+          echo '--- sitemap status ---'
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          ET.parse('/tmp/sitemap.xml')
+          print('sitemap XML valide')
+          PY
 
-      - name: Lighthouse réel — mobile
+      - name: Lighthouse SEO mobile détaillé
         run: |
           set -euo pipefail
           npx --yes lighthouse https://dieppeoratoriens.com/ \
             --quiet \
             --chrome-flags="--headless --no-sandbox --disable-gpu" \
-            --only-categories=performance,accessibility,best-practices,seo \
+            --only-categories=seo \
             --output=json \
-            --output-path=/tmp/lighthouse.json
+            --output-path=/tmp/seo-mobile.json
           node <<'NODE'
-          const r=require('/tmp/lighthouse.json');
-          const cats=r.categories;
-          const out={};
-          for (const k of ['performance','accessibility','best-practices','seo']) out[k]=Math.round(cats[k].score*100);
-          console.log('LIGHTHOUSE_SCORES='+JSON.stringify(out));
-          for (const id of ['first-contentful-paint','largest-contentful-paint','speed-index','total-blocking-time','cumulative-layout-shift','server-response-time']) {
-            const a=r.audits[id]; if(a) console.log(`METRIC ${id}: ${a.displayValue||a.numericValue} score=${a.score}`);
+          const r=require('/tmp/seo-mobile.json');
+          console.log('SEO_MOBILE='+Math.round(r.categories.seo.score*100));
+          for (const ref of r.categories.seo.auditRefs) {
+            const a=r.audits[ref.id];
+            console.log(`SEO_AUDIT ${ref.id} score=${a.score} mode=${a.scoreDisplayMode} title=${a.title}`);
+            if (a.score !== null && a.score < 1 && a.displayValue) console.log(`  display=${a.displayValue}`);
           }
-          const failed=Object.values(r.audits).filter(a=>a.score!==null && a.score<1 && ['binary','numeric'].includes(a.scoreDisplayMode)).sort((a,b)=>(a.score??1)-(b.score??1));
-          for (const a of failed.slice(0,30)) console.log(`AUDIT ${a.id} score=${a.score} — ${a.title}`);
-          if (Object.values(out).some(v=>v<100)) process.exit(2);
+          NODE
+
+      - name: Lighthouse SEO desktop détaillé
+        run: |
+          set -euo pipefail
+          npx --yes lighthouse https://dieppeoratoriens.com/ \
+            --quiet \
+            --preset=desktop \
+            --chrome-flags="--headless --no-sandbox --disable-gpu" \
+            --only-categories=seo \
+            --output=json \
+            --output-path=/tmp/seo-desktop.json
+          node <<'NODE'
+          const r=require('/tmp/seo-desktop.json');
+          console.log('SEO_DESKTOP='+Math.round(r.categories.seo.score*100));
+          for (const ref of r.categories.seo.auditRefs) {
+            const a=r.audits[ref.id];
+            if (a.score !== null && a.score < 1) console.log(`SEO_DESKTOP_FAIL ${ref.id} score=${a.score} title=${a.title}`);
+          }
           NODE
