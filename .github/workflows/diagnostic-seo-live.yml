@@ -1,81 +1,37 @@
-name: Diagnostic SEO live
+name: Diagnostic SEO index.html
 
 on:
   pull_request:
     branches: [main]
 
 permissions:
-  actions: read
   contents: read
 
 jobs:
   diagnostic:
     runs-on: ubuntu-latest
     steps:
-      - name: Vérifier le déploiement courant
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          SEO_SHA: 5d152b414e971d85d6373d9695ffd718879b0636
+      - name: Lighthouse SEO sur index.html
         run: |
           set -euo pipefail
-          RUN_ID="$(gh run list --repo "$REPOSITORY" --workflow deploy-pages.yml --branch main --limit 30 --json databaseId,headSha,conclusion --jq ".[] | select(.headSha == \"$SEO_SHA\" and .conclusion == \"success\") | .databaseId" | head -1)"
-          echo "Production run: ${RUN_ID:-non retrouvé}"
-          test -n "$RUN_ID"
-
-      - name: Contrôler le site, robots et sitemap
-        run: |
-          set -euo pipefail
-          curl -sSIL --max-time 20 https://dieppeoratoriens.com/ | sed -n '1,20p'
-          curl -sSL --max-time 20 https://dieppeoratoriens.com/ -o /tmp/home.html
-          curl -sSL --max-time 20 https://dieppeoratoriens.com/robots.txt -o /tmp/robots.txt
-          curl -sSL --max-time 20 https://dieppeoratoriens.com/sitemap.xml -o /tmp/sitemap.xml
-          echo '--- title/h1 ---'
-          grep -o '<title>[^<]*</title>' /tmp/home.html | head -1
-          grep -o '<h1>[^<]*</h1>' /tmp/home.html | head -1
-          echo '--- robots ---'
-          cat /tmp/robots.txt
-          echo '--- sitemap status ---'
-          python - <<'PY'
-          import xml.etree.ElementTree as ET
-          ET.parse('/tmp/sitemap.xml')
-          print('sitemap XML valide')
-          PY
-
-      - name: Lighthouse SEO mobile détaillé
-        run: |
-          set -euo pipefail
-          npx --yes lighthouse https://dieppeoratoriens.com/ \
+          npx --yes lighthouse https://dieppeoratoriens.com/index.html \
             --quiet \
             --chrome-flags="--headless --no-sandbox --disable-gpu" \
             --only-categories=seo \
             --output=json \
-            --output-path=/tmp/seo-mobile.json
+            --output-path=/tmp/seo-index.json
           node <<'NODE'
-          const r=require('/tmp/seo-mobile.json');
-          console.log('SEO_MOBILE='+Math.round(r.categories.seo.score*100));
+          const r=require('/tmp/seo-index.json');
+          console.log('SEO_INDEX='+Math.round(r.categories.seo.score*100));
+          console.log('FINAL_URL='+r.finalUrl);
           for (const ref of r.categories.seo.auditRefs) {
             const a=r.audits[ref.id];
             console.log(`SEO_AUDIT ${ref.id} score=${a.score} mode=${a.scoreDisplayMode} title=${a.title}`);
-            if (a.score !== null && a.score < 1 && a.displayValue) console.log(`  display=${a.displayValue}`);
-          }
-          NODE
-
-      - name: Lighthouse SEO desktop détaillé
-        run: |
-          set -euo pipefail
-          npx --yes lighthouse https://dieppeoratoriens.com/ \
-            --quiet \
-            --preset=desktop \
-            --chrome-flags="--headless --no-sandbox --disable-gpu" \
-            --only-categories=seo \
-            --output=json \
-            --output-path=/tmp/seo-desktop.json
-          node <<'NODE'
-          const r=require('/tmp/seo-desktop.json');
-          console.log('SEO_DESKTOP='+Math.round(r.categories.seo.score*100));
-          for (const ref of r.categories.seo.auditRefs) {
-            const a=r.audits[ref.id];
-            if (a.score !== null && a.score < 1) console.log(`SEO_DESKTOP_FAIL ${ref.id} score=${a.score} title=${a.title}`);
+            if (a.score !== null && a.score < 1) {
+              console.log(`FAIL ${ref.id}: ${a.title}`);
+              if (a.displayValue) console.log(`DISPLAY ${a.displayValue}`);
+              if (a.explanation) console.log(`EXPLANATION ${a.explanation}`);
+              if (a.details && a.details.items) console.log('DETAILS '+JSON.stringify(a.details.items).slice(0,4000));
+            }
           }
           NODE
