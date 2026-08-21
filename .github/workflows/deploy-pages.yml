@@ -1,0 +1,130 @@
+name: Déployer dieppeoratoriens.com et synchroniser les calendriers
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Toutes les 15 minutes, avec un léger décalage pour réduire les retards de file.
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: dieppeoratoriens-pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Préparer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Récupérer la source validée du site
+        run: |
+          git clone --depth 1 --branch dieppeoratoriens-site \
+            https://github.com/stephanelard-cmd/drelard.com.git staging
+          cat staging/package/site.zip.b64.* | base64 --decode > site.zip
+          unzip -tq site.zip
+          mkdir -p source
+          unzip -q site.zip -d source
+
+      - name: Installer les dépendances de construction
+        run: python -m pip install --disable-pip-version-check beautifulsoup4 pillow
+
+      - name: Appliquer les corrections issues des documents de classement
+        run: python staging/automation/patch_site.py source
+
+      - name: Sécuriser l’état initial du calendrier
+        run: |
+          cat > source/assets/data/availability.json <<'JSON'
+          {
+            "configured": false,
+            "generated_at": null,
+            "refresh_interval_minutes": 15,
+            "unavailable": [],
+            "sources": {"airbnb": "missing", "booking": "missing"}
+          }
+          JSON
+          cat > source/assets/js/calendar.js <<'JS'
+          const state={date:new Date(),ranges:[],fresh:null};state.date.setDate(1);
+          const monthEl=document.querySelector('#cal-month'),daysEl=document.querySelector('#cal-days'),statusEl=document.querySelector('#calendar-status');
+          function iso(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
+          function blocked(s){return state.ranges.some(r=>s>=r.start&&s<r.end)}
+          function render(){if(!monthEl||!daysEl)return;monthEl.textContent=new Intl.DateTimeFormat('fr-FR',{month:'long',year:'numeric'}).format(state.date);daysEl.innerHTML='';const first=new Date(state.date.getFullYear(),state.date.getMonth(),1);const start=new Date(first);start.setDate(1-((first.getDay()+6)%7));const today=iso(new Date());for(let i=0;i<42;i++){const d=new Date(start);d.setDate(start.getDate()+i);const s=iso(d);const el=document.createElement('div');el.className='day';if(d.getMonth()!=state.date.getMonth())el.classList.add('other');if(s<today)el.classList.add('past');if(blocked(s))el.classList.add('unavailable');el.innerHTML=`<span class="n">${d.getDate()}</span>`;el.setAttribute('aria-label',`${s} — ${blocked(s)?'indisponible':'disponibilité à confirmer'}`);daysEl.append(el)}}
+          document.querySelector('#prev')?.addEventListener('click',()=>{state.date.setMonth(state.date.getMonth()-1);render()});
+          document.querySelector('#next')?.addEventListener('click',()=>{state.date.setMonth(state.date.getMonth()+1);render()});
+          fetch('/assets/data/availability.json',{cache:'no-store'}).then(r=>{if(!r.ok)throw Error('indisponible');return r.json()}).then(d=>{state.ranges=Array.isArray(d.unavailable)?d.unavailable:[];state.fresh=d.generated_at||null;if(statusEl){if(d.configured===false){statusEl.textContent='La synchronisation automatique est en cours d’activation. Toutes les dates doivent être vérifiées directement sur Booking.com ou Airbnb.';statusEl.className='status error'}else if(state.fresh){statusEl.textContent=`Calendriers mis à jour le ${new Date(state.fresh).toLocaleString('fr-FR')}. Actualisation programmée toutes les 15 minutes.`;statusEl.className='status ok'}else{statusEl.textContent='Calendrier chargé, disponibilité à confirmer sur la plateforme.';statusEl.className='status error'}}render()}).catch(()=>{if(statusEl){statusEl.textContent='La synchronisation temporaire est indisponible. Vérifiez vos dates sur Booking.com ou Airbnb.';statusEl.className='status error'}render()});render();
+          JS
+
+      - name: Tester le calendrier
+        run: |
+          python -m unittest discover -s source/tests -p "test_*.py"
+          python -m py_compile staging/automation/build_calendar.py source/scripts/fetch_photos.py
+
+      - name: Construire le site statique
+        run: |
+          mkdir -p _site
+          rsync -a --delete \
+            --exclude='.github/' \
+            --exclude='scripts/' \
+            --exclude='tests/' \
+            --exclude='docs/' \
+            --exclude='README.md' \
+            --exclude='SOURCES.md' \
+            source/ _site/
+          test -f _site/index.html
+          test -f _site/classement-equipements.html
+          test "$(tr -d '\r\n' < _site/CNAME)" = "dieppeoratoriens.com"
+          grep -q "31 octobre 2024" _site/classement-equipements.html
+
+      - name: Synchroniser Booking.com et Airbnb
+        env:
+          AIRBNB_ICAL_URL: ${{ secrets.AIRBNB_ICAL_URL }}
+          BOOKING_ICAL_URL: ${{ secrets.BOOKING_ICAL_URL }}
+          OUTPUT: _site/assets/data/availability.json
+        run: |
+          if [ -z "$AIRBNB_ICAL_URL" ] && [ -z "$BOOKING_ICAL_URL" ]; then
+            echo "Les deux secrets iCal ne sont pas encore configurés : calendrier public désactivé."
+          elif [ -z "$AIRBNB_ICAL_URL" ] || [ -z "$BOOKING_ICAL_URL" ]; then
+            echo "Configuration incomplète : les deux secrets iCal sont obligatoires." >&2
+            exit 1
+          else
+            python staging/automation/build_calendar.py
+          fi
+
+      - name: Optimiser les photographies
+        env:
+          SITE_ROOT: ${{ github.workspace }}/_site
+        run: python source/scripts/fetch_photos.py
+
+      - name: Vérifier la confidentialité des calendriers
+        run: |
+          ! grep -R --line-number --fixed-strings 'ical.booking.com' _site
+          ! grep -R --line-number --fixed-strings 'calendar/ical/' _site
+
+      - name: Configurer GitHub Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Téléverser le site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Publier
+        id: deployment
+        uses: actions/deploy-pages@v4
