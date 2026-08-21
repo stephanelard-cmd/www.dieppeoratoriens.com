@@ -28,3 +28,5 @@ Le fichier `CNAME` contenu dans le site déclare `dieppeoratoriens.com`. La zone
 ## Classement
 
 Le site distingue la capacité actuellement affichée sur les plateformes, jusqu’à 5 voyageurs, de l’ancien classement 2 étoiles attribué en 2019 pour 4 personnes et arrivé à échéance le 31 octobre 2024.
+
+<!-- Diagnostic temporaire du déploiement GitHub Pages, 21 août 2026. -->
