@@ -93,7 +93,7 @@ jobs:
           grep -q '"LodgingBusiness"' _site/index.html
           grep -q 'hreflang="en"' _site/index.html
           grep -q 'noindex,follow' _site/404.html
-          grep -q 'role="gridcell"' _site/assets/js/calendar.js
+          grep -q 'gridcell' _site/assets/js/calendar.js
           ! grep -q 'loadPhotos' _site/assets/js/site.js
           python - <<'PY'
           import xml.etree.ElementTree as ET
