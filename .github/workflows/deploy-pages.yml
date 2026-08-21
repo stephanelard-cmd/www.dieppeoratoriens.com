@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    # Toutes les 15 minutes, avec un léger décalage pour réduire les retards de file.
+    # Toutes les 15 minutes, décalé du début d’heure pour limiter les retards de file.
     - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
 
@@ -31,78 +31,21 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Récupérer et réparer la source validée du site
+      - name: Reconstituer et vérifier le site
         run: |
-          git clone --depth 1 --branch dieppeoratoriens-site \
-            https://github.com/stephanelard-cmd/drelard.com.git staging
-          python - <<'PY'
-          import base64, glob, io, pathlib, string, zipfile
-
-          allowed = set(string.ascii_letters + string.digits + '+/=')
-          names = sorted(glob.glob('staging/package/site.zip.b64.*'))
-          parts = [''.join(ch for ch in pathlib.Path(name).read_text(encoding='utf-8') if ch in allowed) for name in names]
-          bad = next((i for i, part in enumerate(parts) if len(part) % 4 == 1), None)
-          if bad is None:
-              candidates = [(None, ''.join(parts))]
-          else:
-              prefix = ''.join(parts[:bad])
-              suffix = ''.join(parts[bad + 1:])
-              candidates = ((i, prefix + parts[bad][:i] + parts[bad][i + 1:] + suffix) for i in range(len(parts[bad])))
-
-          repaired = None
-          removed = None
-          for index, encoded in candidates:
-              try:
-                  data = base64.b64decode(encoded, validate=True)
-                  with zipfile.ZipFile(io.BytesIO(data)) as archive:
-                      if archive.testzip() is None and 'index.html' in archive.namelist():
-                          repaired = data
-                          removed = index
-                          break
-              except Exception:
-                  continue
-
-          if repaired is None:
-              raise SystemExit('Impossible de reconstruire un ZIP valide à partir des fragments source.')
-          pathlib.Path('site.zip').write_bytes(repaired)
-          print(f'ZIP réparé : {len(repaired)} octets ; caractère retiré dans le fragment {bad} à la position {removed}.')
-          PY
+          cat package/site.zip.part.* > site.zip
+          echo "30efa0522e4239dc6346f46239c26175e75c179c56865d715260b692a1d90ccd  site.zip" | sha256sum -c -
           unzip -tq site.zip
           mkdir -p source
           unzip -q site.zip -d source
 
-      - name: Installer les dépendances de construction
-        run: python -m pip install --disable-pip-version-check beautifulsoup4 pillow
-
-      - name: Appliquer les corrections issues des documents de classement
-        run: python staging/automation/patch_site.py source
-
-      - name: Sécuriser l’état initial du calendrier
-        run: |
-          cat > source/assets/data/availability.json <<'JSON'
-          {
-            "configured": false,
-            "generated_at": null,
-            "refresh_interval_minutes": 15,
-            "unavailable": [],
-            "sources": {"airbnb": "missing", "booking": "missing"}
-          }
-          JSON
-          cat > source/assets/js/calendar.js <<'JS'
-          const state={date:new Date(),ranges:[],fresh:null};state.date.setDate(1);
-          const monthEl=document.querySelector('#cal-month'),daysEl=document.querySelector('#cal-days'),statusEl=document.querySelector('#calendar-status');
-          function iso(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
-          function blocked(s){return state.ranges.some(r=>s>=r.start&&s<r.end)}
-          function render(){if(!monthEl||!daysEl)return;monthEl.textContent=new Intl.DateTimeFormat('fr-FR',{month:'long',year:'numeric'}).format(state.date);daysEl.innerHTML='';const first=new Date(state.date.getFullYear(),state.date.getMonth(),1);const start=new Date(first);start.setDate(1-((first.getDay()+6)%7));const today=iso(new Date());for(let i=0;i<42;i++){const d=new Date(start);d.setDate(start.getDate()+i);const s=iso(d);const el=document.createElement('div');el.className='day';if(d.getMonth()!=state.date.getMonth())el.classList.add('other');if(s<today)el.classList.add('past');if(blocked(s))el.classList.add('unavailable');el.innerHTML=`<span class="n">${d.getDate()}</span>`;el.setAttribute('aria-label',`${s} — ${blocked(s)?'indisponible':'disponibilité à confirmer'}`);daysEl.append(el)}}
-          document.querySelector('#prev')?.addEventListener('click',()=>{state.date.setMonth(state.date.getMonth()-1);render()});
-          document.querySelector('#next')?.addEventListener('click',()=>{state.date.setMonth(state.date.getMonth()+1);render()});
-          fetch('/assets/data/availability.json',{cache:'no-store'}).then(r=>{if(!r.ok)throw Error('indisponible');return r.json()}).then(d=>{state.ranges=Array.isArray(d.unavailable)?d.unavailable:[];state.fresh=d.generated_at||null;if(statusEl){if(d.configured===false){statusEl.textContent='La synchronisation automatique est en cours d’activation. Toutes les dates doivent être vérifiées directement sur Booking.com ou Airbnb.';statusEl.className='status error'}else if(state.fresh){statusEl.textContent=`Calendriers mis à jour le ${new Date(state.fresh).toLocaleString('fr-FR')}. Actualisation programmée toutes les 15 minutes.`;statusEl.className='status ok'}else{statusEl.textContent='Calendrier chargé, disponibilité à confirmer sur la plateforme.';statusEl.className='status error'}}render()}).catch(()=>{if(statusEl){statusEl.textContent='La synchronisation temporaire est indisponible. Vérifiez vos dates sur Booking.com ou Airbnb.';statusEl.className='status error'}render()});render();
-          JS
+      - name: Installer l’optimiseur d’images
+        run: python -m pip install --disable-pip-version-check pillow
 
       - name: Tester le calendrier et les scripts
         run: |
           python -m unittest discover -s source/tests -p "test_*.py"
-          python -m py_compile staging/automation/build_calendar.py source/scripts/fetch_photos.py
+          python -m py_compile source/scripts/build_calendar.py source/scripts/fetch_photos.py
 
       - name: Construire le site statique
         run: |
@@ -111,16 +54,17 @@ jobs:
             --exclude='.github/' \
             --exclude='scripts/' \
             --exclude='tests/' \
-            --exclude='docs/' \
             --exclude='README.md' \
-            --exclude='SOURCES.md' \
             source/ _site/
           test -f _site/index.html
+          test -f _site/disponibilites.html
+          test -f _site/avis-localisation.html
           test -f _site/classement-equipements.html
           test "$(tr -d '\r\n' < _site/CNAME)" = "dieppeoratoriens.com"
           grep -q "31 octobre 2024" _site/classement-equipements.html
-          grep -q "153" _site/classement-equipements.html
-          grep -q "79" _site/classement-equipements.html
+          grep -q "153 / 160" _site/classement-equipements.html
+          grep -q "79 points" _site/classement-equipements.html
+          grep -q "jusqu’à cinq voyageurs" _site/index.html
 
       - name: Synchroniser Booking.com et Airbnb
         env:
@@ -129,12 +73,12 @@ jobs:
           OUTPUT: _site/assets/data/availability.json
         run: |
           if [ -z "$AIRBNB_ICAL_URL" ] && [ -z "$BOOKING_ICAL_URL" ]; then
-            echo "Les deux secrets iCal ne sont pas encore configurés : calendrier public désactivé."
+            echo "Les deux secrets iCal ne sont pas encore configurés : le site indiquera que les dates doivent être vérifiées sur les plateformes."
           elif [ -z "$AIRBNB_ICAL_URL" ] || [ -z "$BOOKING_ICAL_URL" ]; then
             echo "Configuration incomplète : les deux secrets iCal sont obligatoires." >&2
             exit 1
           else
-            python staging/automation/build_calendar.py
+            python source/scripts/build_calendar.py
           fi
 
       - name: Optimiser les photographies
@@ -142,7 +86,7 @@ jobs:
           SITE_ROOT: ${{ github.workspace }}/_site
         run: python source/scripts/fetch_photos.py
 
-      - name: Vérifier la confidentialité des calendriers
+      - name: Vérifier la confidentialité des flux iCal
         run: |
           ! grep -R --line-number --fixed-strings 'ical.booking.com' _site
           ! grep -R --line-number --fixed-strings 'calendar/ical/' _site
