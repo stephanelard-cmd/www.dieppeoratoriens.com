@@ -37,7 +37,7 @@ jobs:
             https://github.com/stephanelard-cmd/drelard.com.git staging
           : > site.zip
           for part in staging/package/site.zip.b64.*; do
-            base64 --decode "$part" >> site.zip
+            base64 --decode --ignore-garbage "$part" >> site.zip
           done
           unzip -tq site.zip
           mkdir -p source
