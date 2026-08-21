@@ -1,0 +1,30 @@
+name: Diagnostic SEO live
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Derniers runs main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run list --workflow deploy-pages.yml --branch main --limit 5 --json databaseId,event,status,conclusion,createdAt,url,headSha
+      - name: Contrôler le site public
+        run: |
+          curl -sSIL --max-time 20 https://dieppeoratoriens.com/ | sed -n '1,20p'
+          curl -sSL --max-time 20 https://dieppeoratoriens.com/ -o /tmp/home.html
+          grep -o '<title>[^<]*</title>' /tmp/home.html | head -1
+          grep -o '<h1>[^<]*</h1>' /tmp/home.html | head -1
+          grep -q 'Location appartement Dieppe port' /tmp/home.html
+          grep -q 'LodgingBusiness' /tmp/home.html
+          grep -q 'hreflang="en"' /tmp/home.html
+          grep -q '/assets/photos/photo-1.webp' /tmp/home.html
+          echo 'SEO live: OK'
