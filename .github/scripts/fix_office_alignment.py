@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -41,6 +42,11 @@ def main() -> int:
     css = css_path.read_text(encoding="utf-8")
     if MARKER not in css:
         css_path.write_text(css.rstrip() + "\n" + CSS.strip() + "\n", encoding="utf-8")
+
+    gallery_script = Path(__file__).with_name("fix_gallery_labels.py")
+    if not gallery_script.exists():
+        raise SystemExit(f"Script de correction de la galerie introuvable : {gallery_script}")
+    subprocess.run([sys.executable, str(gallery_script), str(root)], check=True)
 
     print("Centrage de la section Office de Tourisme appliqué.")
     return 0
