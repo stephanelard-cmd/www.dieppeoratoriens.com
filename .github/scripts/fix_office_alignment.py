@@ -25,6 +25,13 @@ CSS = r'''
 '''
 
 
+def run_companion_script(name: str, root: Path) -> None:
+    script = Path(__file__).with_name(name)
+    if not script.exists():
+        raise SystemExit(f"Script complémentaire introuvable : {script}")
+    subprocess.run([sys.executable, str(script), str(root)], check=True)
+
+
 def main() -> int:
     root = Path(sys.argv[1] if len(sys.argv) > 1 else "_site").resolve()
     page = root / "decouvrir-dieppe.html"
@@ -43,10 +50,8 @@ def main() -> int:
     if MARKER not in css:
         css_path.write_text(css.rstrip() + "\n" + CSS.strip() + "\n", encoding="utf-8")
 
-    gallery_script = Path(__file__).with_name("fix_gallery_labels.py")
-    if not gallery_script.exists():
-        raise SystemExit(f"Script de correction de la galerie introuvable : {gallery_script}")
-    subprocess.run([sys.executable, str(gallery_script), str(root)], check=True)
+    run_companion_script("fix_gallery_labels.py", root)
+    run_companion_script("add_google_travel_link.py", root)
 
     print("Centrage de la section Office de Tourisme appliqué.")
     return 0
