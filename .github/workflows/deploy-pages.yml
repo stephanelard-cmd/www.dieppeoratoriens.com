@@ -42,9 +42,17 @@ jobs:
       - name: Installer les dépendances de construction
         run: python -m pip install --disable-pip-version-check pillow beautifulsoup4
 
-      - name: Contrôler la source officielle des manifestations
-        if: github.event_name == 'pull_request'
-        run: python .github/scripts/inspect_dieppe_agenda.py
+      - name: Importer l’agenda officiel de Dieppe-Normandie
+        run: |
+          mkdir -p .cache
+          python .github/scripts/sync_official_events.py \
+            --output .cache/dieppe-events.json \
+            --bootstrap-url https://dieppeoratoriens.com/assets/data/dieppe-events.json \
+            --max-pages 10 \
+            --max-events 96 \
+            --workers 6 \
+            --detail-max-age 43200 \
+            --max-refresh 18
 
       - name: Générer le guide local et l’agenda
         run: python .github/scripts/local_guide.py source
@@ -52,7 +60,16 @@ jobs:
       - name: Tester le calendrier et les scripts
         run: |
           python -m unittest discover -s source/tests -p "test_*.py"
-          python -m py_compile source/scripts/build_calendar.py source/scripts/fetch_photos.py .github/scripts/seo_optimize.py .github/scripts/perf_optimize.py .github/scripts/home_redirect.py .github/scripts/local_guide.py .github/scripts/fix_office_alignment.py .github/scripts/inspect_dieppe_agenda.py
+          python -m py_compile \
+            source/scripts/build_calendar.py \
+            source/scripts/fetch_photos.py \
+            .github/scripts/seo_optimize.py \
+            .github/scripts/perf_optimize.py \
+            .github/scripts/home_redirect.py \
+            .github/scripts/local_guide.py \
+            .github/scripts/fix_office_alignment.py \
+            .github/scripts/sync_official_events.py \
+            .github/scripts/render_official_events.py
 
       - name: Construire le site statique
         run: |
@@ -78,7 +95,6 @@ jobs:
           grep -q "79 points" _site/classement-equipements.html
           grep -q "jusqu’à cinq voyageurs" _site/index.html
           grep -q "Office de Tourisme Dieppe-Normandie" _site/decouvrir-dieppe.html
-          grep -q "Foire aux Harengs" _site/agenda-dieppe.html
           grep -q "Les Ursulines" _site/decouvrir-dieppe.html
 
       - name: Synchroniser Booking.com et Airbnb
@@ -108,6 +124,9 @@ jobs:
           python .github/scripts/home_redirect.py
           python .github/scripts/local_guide.py _site --finalize
           python .github/scripts/fix_office_alignment.py _site
+          python .github/scripts/render_official_events.py \
+            --site-root _site \
+            --input .cache/dieppe-events.json
           grep -q "Location appartement Dieppe port" _site/index.html
           grep -q '"LodgingBusiness"' _site/index.html
           grep -q 'hreflang="en"' _site/index.html
@@ -127,9 +146,24 @@ jobs:
           grep -q 'office-tourism-centering-v2' _site/assets/css/site.css
           grep -q '#office-tourisme .office-card' _site/assets/css/site.css
           grep -q '#office-tourisme .contact-list p' _site/assets/css/site.css
+          grep -q 'Import automatique de l.agenda officiel' _site/agenda-dieppe.html
+          grep -q 'data-official-event="true"' _site/agenda-dieppe.html
+          test -f _site/assets/data/dieppe-events.json
           python - <<'PY'
+          import json
           import xml.etree.ElementTree as ET
+          from pathlib import Path
+
           ET.parse('_site/sitemap.xml')
+          payload = json.loads(Path('_site/assets/data/dieppe-events.json').read_text(encoding='utf-8'))
+          html = Path('_site/agenda-dieppe.html').read_text(encoding='utf-8')
+          events = payload.get('events', [])
+          cards = html.count('data-official-event="true"')
+          assert payload.get('refresh_interval_minutes') == 15, payload
+          assert len(events) >= 5, len(events)
+          assert cards == len(events), (cards, len(events))
+          assert all(item.get('url', '').startswith('https://www.dieppetourisme.com/agenda/') for item in events)
+          print(f'Agenda officiel validé : {len(events)} événements, {cards} cartes HTML.')
           print('sitemap.xml valide')
           PY
 
