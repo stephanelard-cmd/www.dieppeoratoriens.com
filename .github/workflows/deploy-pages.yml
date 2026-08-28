@@ -39,13 +39,16 @@ jobs:
           mkdir -p source
           unzip -q site.zip -d source
 
-      - name: Installer l’optimiseur d’images
-        run: python -m pip install --disable-pip-version-check pillow
+      - name: Installer les dépendances de construction
+        run: python -m pip install --disable-pip-version-check pillow beautifulsoup4
+
+      - name: Générer le guide local et l’agenda
+        run: python .github/scripts/local_guide.py source
 
       - name: Tester le calendrier et les scripts
         run: |
           python -m unittest discover -s source/tests -p "test_*.py"
-          python -m py_compile source/scripts/build_calendar.py source/scripts/fetch_photos.py .github/scripts/seo_optimize.py .github/scripts/perf_optimize.py .github/scripts/home_redirect.py
+          python -m py_compile source/scripts/build_calendar.py source/scripts/fetch_photos.py .github/scripts/seo_optimize.py .github/scripts/perf_optimize.py .github/scripts/home_redirect.py .github/scripts/local_guide.py
 
       - name: Construire le site statique
         run: |
@@ -61,6 +64,8 @@ jobs:
           test -f _site/disponibilites.html
           test -f _site/avis-localisation.html
           test -f _site/classement-equipements.html
+          test -f _site/decouvrir-dieppe.html
+          test -f _site/agenda-dieppe.html
           test -f _site/googlefec5e1e106c9c180.html
           grep -q "google-site-verification: googlefec5e1e106c9c180.html" _site/googlefec5e1e106c9c180.html
           test "$(tr -d '\r\n' < _site/CNAME)" = "dieppeoratoriens.com"
@@ -68,6 +73,9 @@ jobs:
           grep -q "153 / 160" _site/classement-equipements.html
           grep -q "79 points" _site/classement-equipements.html
           grep -q "jusqu’à cinq voyageurs" _site/index.html
+          grep -q "Office de Tourisme Dieppe-Normandie" _site/decouvrir-dieppe.html
+          grep -q "Foire aux Harengs" _site/agenda-dieppe.html
+          grep -q "Les Ursulines" _site/decouvrir-dieppe.html
 
       - name: Synchroniser Booking.com et Airbnb
         env:
@@ -94,6 +102,7 @@ jobs:
           python .github/scripts/seo_optimize.py
           python .github/scripts/perf_optimize.py
           python .github/scripts/home_redirect.py
+          python .github/scripts/local_guide.py _site --finalize
           grep -q "Location appartement Dieppe port" _site/index.html
           grep -q '"LodgingBusiness"' _site/index.html
           grep -q 'hreflang="en"' _site/index.html
@@ -104,6 +113,12 @@ jobs:
           grep -q 'location.pathname==="/index.html"' _site/index.html
           ! grep -q '/assets/css/site.css' _site/index.html
           ! grep -q '/assets/js/site.js' _site/index.html
+          grep -q "decouvrir-dieppe.html" _site/sitemap.xml
+          grep -q "agenda-dieppe.html" _site/sitemap.xml
+          grep -q '"TouristInformationCenter"' _site/decouvrir-dieppe.html
+          grep -q '"Event"' _site/agenda-dieppe.html
+          grep -q 'local-guide-home' _site/index.html
+          grep -q 'local-guide-v1' _site/assets/css/site.css
           python - <<'PY'
           import xml.etree.ElementTree as ET
           ET.parse('_site/sitemap.xml')
