@@ -95,6 +95,11 @@ def run_multilingual_generator(site_root: Path) -> None:
         raise SystemExit(f"Générateur multilingue introuvable : {generator}")
     subprocess.run([sys.executable, str(generator), str(site_root)], check=True)
 
+    flag_enhancer = Path(__file__).with_name("add_visible_language_flags.py")
+    if not flag_enhancer.exists():
+        raise SystemExit(f"Générateur de drapeaux introuvable : {flag_enhancer}")
+    subprocess.run([sys.executable, str(flag_enhancer), str(site_root)], check=True)
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Injecte l’agenda officiel importé dans la page publique")
