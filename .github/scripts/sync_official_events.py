@@ -5,7 +5,6 @@ import argparse
 import concurrent.futures
 import html as html_lib
 import json
-import os
 import re
 import sys
 import tempfile
@@ -15,18 +14,20 @@ import urllib.request
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+from zoneinfo import ZoneInfo
 
 from bs4 import BeautifulSoup
 
 LIST_URL = "https://www.dieppetourisme.com/agenda/tout-lagenda/"
+PUBLIC_CACHE_URL = "https://dieppeoratoriens.com/assets/data/dieppe-events.json"
 SOURCE_NAME = "Dieppe-Normandie Tourisme"
 EVENT_URL_RE = re.compile(
     r"https?://(?:www\.)?dieppetourisme\.com/agenda/[^\"'<>\s?#]+-fr-\d+/?",
     re.I,
 )
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; OratoriensAgenda/2.0; +https://dieppeoratoriens.com/)",
-    "Accept": "text/html,application/xhtml+xml",
+    "User-Agent": "Mozilla/5.0 (compatible; OratoriensAgenda/2.1; +https://dieppeoratoriens.com/)",
+    "Accept": "text/html,application/xhtml+xml,application/json;q=0.9",
     "Accept-Language": "fr-FR,fr;q=0.9",
 }
 MAX_BYTES = 5_000_000
@@ -53,9 +54,13 @@ CATEGORY_RULES = {
     "gastronomie": ("gastronomie", "dégustation", "marché", "hareng", "coquille", "culinaire", "terroir"),
     "sport": ("sport", "stage", "voile", "golf", "course", "rallye", "échecs", "nautique"),
 }
+GENERIC_SUMMARY = (
+    "Programme, horaires, tarifs et conditions à consulter sur la fiche officielle "
+    "de Dieppe-Normandie Tourisme."
+)
 
 
-def fetch_html(url: str, attempts: int = 3) -> tuple[str, str]:
+def fetch_bytes(url: str, attempts: int = 3) -> tuple[bytes, str]:
     last_error: Exception | None = None
     for attempt in range(1, attempts + 1):
         try:
@@ -66,7 +71,7 @@ def fetch_html(url: str, attempts: int = 3) -> tuple[str, str]:
                     raise ValueError(f"Réponse trop volumineuse pour {url}")
                 if response.status != 200:
                     raise ValueError(f"HTTP {response.status} pour {url}")
-                return data.decode("utf-8", "replace"), response.geturl()
+                return data, response.geturl()
         except Exception as exc:  # noqa: BLE001
             last_error = exc
             if attempt < attempts:
@@ -75,11 +80,23 @@ def fetch_html(url: str, attempts: int = 3) -> tuple[str, str]:
     raise last_error
 
 
+def fetch_html(url: str, attempts: int = 3) -> tuple[str, str]:
+    data, final_url = fetch_bytes(url, attempts=attempts)
+    return data.decode("utf-8", "replace"), final_url
+
+
 def normalize_url(url: str, base: str = LIST_URL) -> str:
     absolute = urllib.parse.urljoin(base, html_lib.unescape(url))
     parsed = urllib.parse.urlsplit(absolute)
-    clean = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc.lower(), parsed.path, "", ""))
-    return clean if clean.endswith("/") else clean + "/"
+    path = parsed.path if parsed.path.endswith("/") else parsed.path + "/"
+    return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc.lower(), path, "", ""))
+
+
+def normalize_page_url(url: str, base: str = LIST_URL) -> str:
+    absolute = urllib.parse.urljoin(base, html_lib.unescape(url))
+    parsed = urllib.parse.urlsplit(absolute)
+    path = parsed.path if parsed.path.endswith("/") else parsed.path + "/"
+    return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc.lower(), path, parsed.query, ""))
 
 
 def rel_contains_next(tag: Any) -> bool:
@@ -123,7 +140,7 @@ def discover_event_urls(max_pages: int, max_events: int) -> tuple[list[str], int
             (tag for tag in soup.find_all(["a", "link"], href=True) if rel_contains_next(tag)),
             None,
         )
-        current = normalize_url(next_tag["href"], final_url) if next_tag else ""
+        current = normalize_page_url(next_tag["href"], final_url) if next_tag else ""
 
     return events[:max_events], pages
 
@@ -171,18 +188,6 @@ def clean_text(value: Any) -> str:
     return re.sub(r"\s+", " ", html_lib.unescape(text)).strip()
 
 
-def short_description(text: str, limit: int = 300) -> str:
-    text = clean_text(text)
-    if len(text) <= limit:
-        return text
-    cut = text[: limit + 1]
-    boundary = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "), cut.rfind("; "))
-    if boundary >= int(limit * 0.55):
-        return cut[: boundary + 1].strip()
-    boundary = cut.rfind(" ")
-    return cut[:boundary].rstrip(" ,;:-") + "…"
-
-
 def iso_date(value: Any) -> str:
     match = re.match(r"^(\d{4}-\d{2}-\d{2})", str(value or ""))
     return match.group(1) if match else ""
@@ -210,18 +215,6 @@ def human_date(start: str, end: str, start_time: str = "", end_time: str = "") -
     if first.year == last.year:
         return f"{first.day} {MONTHS[first.month - 1]}–{last.day} {MONTHS[last.month - 1]} {first.year}"
     return f"{first.day} {MONTHS[first.month - 1]} {first.year}–{last.day} {MONTHS[last.month - 1]} {last.year}"
-
-
-def first_image(value: Any) -> str:
-    if isinstance(value, str):
-        return value
-    if isinstance(value, list):
-        return next((item for item in value if isinstance(item, str)), "")
-    if isinstance(value, dict):
-        for key in ("url", "contentUrl"):
-            if isinstance(value.get(key), str):
-                return value[key]
-    return ""
 
 
 def location_payload(value: Any) -> tuple[str, dict[str, str]]:
@@ -255,13 +248,13 @@ def location_payload(value: Any) -> tuple[str, dict[str, str]]:
     return display, fields
 
 
-def categories_for(title: str, description: str, page_text: str) -> list[str]:
-    haystack = f"{title} {description} {page_text[:20000]}".lower()
+def categories_for(title: str, source_description: str) -> list[str]:
+    haystack = f"{title} {source_description}".lower()
     categories = [name for name, words in CATEGORY_RULES.items() if any(word in haystack for word in words)]
     return categories or ["culture"]
 
 
-def parse_detail(url: str) -> dict[str, Any] | None:
+def parse_detail(url: str) -> dict[str, Any]:
     page_html, final_url = fetch_html(url)
     soup = BeautifulSoup(page_html, "html.parser")
     node = extract_event_node(soup, final_url)
@@ -273,17 +266,20 @@ def parse_detail(url: str) -> dict[str, Any] | None:
     end_raw = node.get("endDate") or start_raw
     start = iso_date(start_raw)
     end = iso_date(end_raw)
+    status = clean_text(node.get("eventStatus"))
     if not title or not start or not end:
         raise ValueError("Titre ou dates absents")
+    if status.lower().endswith("eventcancelled"):
+        raise ValueError("Événement annulé")
 
-    description = short_description(clean_text(node.get("description")))
-    if not description:
+    source_description = clean_text(node.get("description"))
+    if not source_description:
         meta = soup.find("meta", attrs={"name": "description"})
-        description = short_description(meta.get("content", "") if meta else "")
+        source_description = clean_text(meta.get("content", "") if meta else "")
     place, address = location_payload(node.get("location"))
-    page_text = soup.get_text(" ", strip=True)
-    categories = categories_for(title, description, page_text)
+    categories = categories_for(title, source_description)
     canonical = normalize_url(str(node.get("url") or final_url))
+    fetched_at = datetime.now(timezone.utc).isoformat()
 
     return {
         "id": canonical.rstrip("/").rsplit("-fr-", 1)[-1],
@@ -295,19 +291,17 @@ def parse_detail(url: str) -> dict[str, Any] | None:
         "date_label": human_date(start, end, iso_time(start_raw), iso_time(end_raw)),
         "place": place,
         "address": address,
-        "description": description,
+        "description": GENERIC_SUMMARY,
         "url": canonical,
-        "image": first_image(node.get("image")),
         "categories": categories,
         "free": "gratuit" in categories,
         "source": SOURCE_NAME,
+        "fetched_at": fetched_at,
     }
 
 
-def validate_cache(path: Path) -> dict[str, Any] | None:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
+def validate_payload(payload: Any) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
         return None
     events = payload.get("events")
     if not isinstance(events, list) or len(events) < 5:
@@ -317,15 +311,33 @@ def validate_cache(path: Path) -> dict[str, Any] | None:
     return payload
 
 
-def cache_age_seconds(payload: dict[str, Any]) -> float:
-    raw = payload.get("generated_at")
+def load_json_file(path: Path) -> dict[str, Any] | None:
+    try:
+        return validate_payload(json.loads(path.read_text(encoding="utf-8")))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def load_public_cache(url: str) -> dict[str, Any] | None:
+    try:
+        data, _ = fetch_bytes(url, attempts=1)
+        payload = validate_payload(json.loads(data.decode("utf-8")))
+        if payload:
+            print(f"Agenda officiel : cache public chargé ({payload.get('event_count', len(payload['events']))} événements).")
+        return payload
+    except Exception as exc:  # noqa: BLE001
+        print(f"Agenda officiel : aucun cache public utilisable ({type(exc).__name__}).")
+        return None
+
+
+def age_seconds(raw: Any) -> float:
     if not isinstance(raw, str):
         return float("inf")
     try:
-        generated = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        moment = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except ValueError:
         return float("inf")
-    return max(0.0, (datetime.now(timezone.utc) - generated.astimezone(timezone.utc)).total_seconds())
+    return max(0.0, (datetime.now(timezone.utc) - moment.astimezone(timezone.utc)).total_seconds())
 
 
 def write_atomic(path: Path, payload: dict[str, Any]) -> None:
@@ -337,44 +349,87 @@ def write_atomic(path: Path, payload: dict[str, Any]) -> None:
     temp_path.replace(path)
 
 
-def build_payload(max_pages: int, max_events: int, workers: int) -> dict[str, Any]:
+def build_payload(
+    previous: dict[str, Any] | None,
+    max_pages: int,
+    max_events: int,
+    workers: int,
+    detail_max_age: int,
+    max_refresh: int,
+) -> dict[str, Any]:
     urls, pages = discover_event_urls(max_pages=max_pages, max_events=max_events)
     if len(urls) < 5:
         raise RuntimeError(f"Seulement {len(urls)} liens événements découverts")
 
-    parsed: list[dict[str, Any]] = []
+    previous_by_url = {
+        normalize_url(str(event["url"])): event
+        for event in (previous or {}).get("events", [])
+        if isinstance(event, dict) and event.get("url")
+    }
+    now_iso = datetime.now(timezone.utc).isoformat()
+    new_urls = [url for url in urls if url not in previous_by_url]
+    stale_urls = [
+        url
+        for url in urls
+        if url in previous_by_url and age_seconds(previous_by_url[url].get("fetched_at")) > detail_max_age
+    ]
+    refresh_urls = new_urls + stale_urls[:max_refresh]
+    refresh_set = set(refresh_urls)
+    print(
+        "Agenda officiel : "
+        f"{len(new_urls)} nouvelle(s) fiche(s), {len(stale_urls)} fiche(s) ancienne(s), "
+        f"{len(refresh_urls)} fiche(s) à télécharger."
+    )
+
+    fetched: dict[str, dict[str, Any]] = {}
     failures: list[str] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, workers)) as executor:
-        future_map = {executor.submit(parse_detail, url): url for url in urls}
+        future_map = {executor.submit(parse_detail, url): url for url in refresh_urls}
         for future in concurrent.futures.as_completed(future_map):
             url = future_map[future]
             try:
-                event = future.result()
-                if event:
-                    parsed.append(event)
+                fetched[url] = future.result()
             except Exception as exc:  # noqa: BLE001
                 failures.append(f"{url}: {type(exc).__name__}")
 
-    today = date.today().isoformat()
-    upcoming = [event for event in parsed if event["end"] >= today]
-    deduped: dict[str, dict[str, Any]] = {event["url"]: event for event in upcoming}
+    merged: list[dict[str, Any]] = []
+    for url in urls:
+        event = fetched.get(url) or previous_by_url.get(url)
+        if event:
+            normalized = dict(event)
+            normalized["url"] = url
+            normalized.setdefault("description", GENERIC_SUMMARY)
+            normalized.setdefault("fetched_at", now_iso if url in refresh_set else (previous or {}).get("generated_at", now_iso))
+            merged.append(normalized)
+
+    today = datetime.now(ZoneInfo("Europe/Paris")).date().isoformat()
+    upcoming = [event for event in merged if str(event.get("end", "")) >= today]
+    deduped: dict[str, dict[str, Any]] = {str(event["url"]): event for event in upcoming}
     events = list(deduped.values())
-    events.sort(key=lambda event: (0 if event["start"] <= today <= event["end"] else 1, event["start"], event["title"].casefold()))
+    events.sort(
+        key=lambda event: (
+            0 if str(event["start"]) <= today <= str(event["end"]) else 1,
+            str(event["start"]),
+            str(event["title"]).casefold(),
+        )
+    )
     events = events[:max_events]
 
     if len(events) < 5:
         raise RuntimeError(f"Import insuffisant : {len(events)} événements à venir")
 
-    now = datetime.now(timezone.utc).isoformat()
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "source": SOURCE_NAME,
         "source_url": LIST_URL,
-        "generated_at": now,
-        "refresh_interval_hours": 6,
+        "generated_at": now_iso,
+        "refresh_interval_minutes": 15,
+        "detail_refresh_hours": round(detail_max_age / 3600, 2),
         "listing_pages_scanned": pages,
         "links_discovered": len(urls),
-        "detail_failures": failures[:20],
+        "new_links": len(new_urls),
+        "details_refreshed": len(fetched),
+        "detail_failures": failures[:30],
         "event_count": len(events),
         "events": events,
     }
@@ -383,31 +438,44 @@ def build_payload(max_pages: int, max_events: int, workers: int) -> dict[str, An
 def main() -> int:
     parser = argparse.ArgumentParser(description="Importe les événements officiels de Dieppe-Normandie Tourisme")
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--max-age", type=int, default=21600)
-    parser.add_argument("--max-pages", type=int, default=8)
-    parser.add_argument("--max-events", type=int, default=72)
-    parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--bootstrap-url", default=PUBLIC_CACHE_URL)
+    parser.add_argument("--max-pages", type=int, default=10)
+    parser.add_argument("--max-events", type=int, default=96)
+    parser.add_argument("--workers", type=int, default=6)
+    parser.add_argument("--detail-max-age", type=int, default=43200)
+    parser.add_argument("--max-refresh", type=int, default=18)
     args = parser.parse_args()
 
-    existing = validate_cache(args.output) if args.output.exists() else None
-    if existing and args.max_age > 0 and cache_age_seconds(existing) <= args.max_age:
-        print(f"Agenda officiel : cache frais utilisé ({existing['event_count']} événements).")
-        return 0
+    previous = load_json_file(args.output) if args.output.exists() else None
+    if previous is None and args.bootstrap_url:
+        previous = load_public_cache(args.bootstrap_url)
 
     try:
-        payload = build_payload(args.max_pages, args.max_events, args.workers)
+        payload = build_payload(
+            previous=previous,
+            max_pages=args.max_pages,
+            max_events=args.max_events,
+            workers=args.workers,
+            detail_max_age=args.detail_max_age,
+            max_refresh=args.max_refresh,
+        )
         write_atomic(args.output, payload)
         print(
             "Agenda officiel importé : "
             f"{payload['event_count']} événements, {payload['listing_pages_scanned']} pages, "
-            f"{len(payload['detail_failures'])} fiche(s) en échec."
+            f"{payload['new_links']} nouveau(x), {payload['details_refreshed']} fiche(s) actualisée(s), "
+            f"{len(payload['detail_failures'])} échec(s)."
         )
         return 0
     except Exception as exc:  # noqa: BLE001
-        if existing:
+        if previous:
+            fallback = dict(previous)
+            fallback["last_check_failed_at"] = datetime.now(timezone.utc).isoformat()
+            fallback["last_check_error"] = type(exc).__name__
+            write_atomic(args.output, fallback)
             print(
                 f"AVERTISSEMENT : import live en échec ({type(exc).__name__}: {exc}). "
-                f"Conservation du dernier cache valide de {existing.get('generated_at')}.",
+                f"Conservation du dernier cache valide de {previous.get('generated_at')}.",
                 file=sys.stderr,
             )
             return 0
