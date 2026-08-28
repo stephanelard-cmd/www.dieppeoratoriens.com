@@ -70,7 +70,8 @@ jobs:
             .github/scripts/fix_office_alignment.py \
             .github/scripts/sync_official_events.py \
             .github/scripts/render_official_events.py \
-            .github/scripts/generate_multilingual_site.py
+            .github/scripts/generate_multilingual_site.py \
+            .github/scripts/add_visible_language_flags.py
 
       - name: Construire le site statique
         run: |
@@ -159,10 +160,15 @@ jobs:
           test -f _site/en/disponibilites.html
           test -f _site/de/agenda-dieppe.html
           test -f _site/es/decouvrir-dieppe.html
-          grep -q 'language-switcher-v1' _site/index.html
-          grep -q '🇬🇧' _site/index.html
-          grep -q '🇩🇪' _site/index.html
-          grep -q '🇪🇸' _site/index.html
+          grep -q 'language-switcher-v2' _site/index.html
+          test -f _site/assets/flags/fr.svg
+          test -f _site/assets/flags/gb.svg
+          test -f _site/assets/flags/de.svg
+          test -f _site/assets/flags/es.svg
+          grep -q '/assets/flags/fr.svg' _site/index.html
+          grep -q '/assets/flags/gb.svg' _site/index.html
+          grep -q '/assets/flags/de.svg' _site/index.html
+          grep -q '/assets/flags/es.svg' _site/index.html
           grep -q 'Ferienwohnung' _site/de/index.html
           grep -q 'Apartamento vacacional' _site/es/index.html
           python - <<'PY'
@@ -183,7 +189,7 @@ jobs:
               page = Path(f'_site/{lang}/agenda-dieppe.html').read_text(encoding='utf-8')
               assert page.count('data-official-event="true"') == len(events), lang
           print(f'Agenda officiel validé : {len(events)} événements, {cards} cartes HTML par langue.')
-          print('Site multilingue et sitemap.xml valides')
+          print('Site multilingue, drapeaux SVG et sitemap.xml valides')
           PY
 
       - name: Vérifier la confidentialité des flux iCal
