@@ -1,0 +1,1 @@
+Actualisation manuelle demandée le 28 août 2026 à 12:10 (heure de Paris) afin de contrôler séparément les flux iCal Airbnb et Booking.com, le nombre de périodes bloquées et le fichier availability.json publié.
