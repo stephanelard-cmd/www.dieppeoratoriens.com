@@ -1,0 +1,45 @@
+name: Diagnostic iCal sans afficher les valeurs
+
+on:
+  push:
+    paths:
+      - ".github/workflows/verify-ical-scope.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repository-scope:
+    name: Vérifier le dépôt
+    runs-on: ubuntu-latest
+    steps:
+      - name: Contrôler les noms attendus
+        env:
+          AIRBNB_SECRET: ${{ secrets.AIRBNB_ICAL_URL }}
+          BOOKING_SECRET: ${{ secrets.BOOKING_ICAL_URL }}
+          AIRBNB_VARIABLE: ${{ vars.AIRBNB_ICAL_URL }}
+          BOOKING_VARIABLE: ${{ vars.BOOKING_ICAL_URL }}
+        run: |
+          test -n "$AIRBNB_SECRET" && echo "repository_secret_airbnb=present" || echo "repository_secret_airbnb=missing"
+          test -n "$BOOKING_SECRET" && echo "repository_secret_booking=present" || echo "repository_secret_booking=missing"
+          test -n "$AIRBNB_VARIABLE" && echo "repository_variable_airbnb=present" || echo "repository_variable_airbnb=missing"
+          test -n "$BOOKING_VARIABLE" && echo "repository_variable_booking=present" || echo "repository_variable_booking=missing"
+
+  github-pages-environment:
+    name: Vérifier l’environnement github-pages
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+    steps:
+      - name: Contrôler les noms attendus
+        env:
+          AIRBNB_SECRET: ${{ secrets.AIRBNB_ICAL_URL }}
+          BOOKING_SECRET: ${{ secrets.BOOKING_ICAL_URL }}
+          AIRBNB_VARIABLE: ${{ vars.AIRBNB_ICAL_URL }}
+          BOOKING_VARIABLE: ${{ vars.BOOKING_ICAL_URL }}
+        run: |
+          test -n "$AIRBNB_SECRET" && echo "environment_secret_airbnb=present" || echo "environment_secret_airbnb=missing"
+          test -n "$BOOKING_SECRET" && echo "environment_secret_booking=present" || echo "environment_secret_booking=missing"
+          test -n "$AIRBNB_VARIABLE" && echo "environment_variable_airbnb=present" || echo "environment_variable_airbnb=missing"
+          test -n "$BOOKING_VARIABLE" && echo "environment_variable_booking=present" || echo "environment_variable_booking=missing"
