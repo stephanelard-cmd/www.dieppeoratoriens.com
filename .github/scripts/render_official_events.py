@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -85,6 +87,13 @@ def remove_dynamic_schema(soup: BeautifulSoup) -> None:
         text = script.string or script.get_text()
         if '"Event"' in text or "'Event'" in text or "agenda-dieppe.html#webpage" in text:
             script.decompose()
+
+
+def run_multilingual_generator(site_root: Path) -> None:
+    generator = Path(__file__).with_name("generate_multilingual_site.py")
+    if not generator.exists():
+        raise SystemExit(f"Générateur multilingue introuvable : {generator}")
+    subprocess.run([sys.executable, str(generator), str(site_root)], check=True)
 
 
 def main() -> int:
@@ -176,6 +185,7 @@ def main() -> int:
     public_json.parent.mkdir(parents=True, exist_ok=True)
     public_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
+    run_multilingual_generator(args.site_root)
     print(f"Agenda public rendu avec {len(events)} événements officiels importés.")
     return 0
 
