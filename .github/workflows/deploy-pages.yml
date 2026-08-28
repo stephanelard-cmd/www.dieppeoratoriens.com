@@ -69,7 +69,8 @@ jobs:
             .github/scripts/local_guide.py \
             .github/scripts/fix_office_alignment.py \
             .github/scripts/sync_official_events.py \
-            .github/scripts/render_official_events.py
+            .github/scripts/render_official_events.py \
+            .github/scripts/generate_multilingual_site.py
 
       - name: Construire le site statique
         run: |
@@ -129,9 +130,12 @@ jobs:
             --input .cache/dieppe-events.json
           grep -q "Location appartement Dieppe port" _site/index.html
           grep -q '"LodgingBusiness"' _site/index.html
-          grep -q 'hreflang="en"' _site/index.html
+          grep -q 'hreflang="en-GB"' _site/index.html
+          grep -q 'hreflang="de-DE"' _site/index.html
+          grep -q 'hreflang="es-ES"' _site/index.html
           grep -q 'noindex,follow' _site/404.html
           grep -q 'gridcell' _site/assets/js/calendar.js
+          grep -q 'calendarI18n' _site/assets/js/calendar.js
           ! grep -q 'loadPhotos' _site/assets/js/site.js
           grep -q 'hero-480.webp' _site/index.html
           grep -q 'location.pathname==="/index.html"' _site/index.html
@@ -149,6 +153,18 @@ jobs:
           grep -q 'Import automatique de l.agenda officiel' _site/agenda-dieppe.html
           grep -q 'data-official-event="true"' _site/agenda-dieppe.html
           test -f _site/assets/data/dieppe-events.json
+          test -f _site/en/index.html
+          test -f _site/de/index.html
+          test -f _site/es/index.html
+          test -f _site/en/disponibilites.html
+          test -f _site/de/agenda-dieppe.html
+          test -f _site/es/decouvrir-dieppe.html
+          grep -q 'language-switcher-v1' _site/index.html
+          grep -q '🇬🇧' _site/index.html
+          grep -q '🇩🇪' _site/index.html
+          grep -q '🇪🇸' _site/index.html
+          grep -q 'Ferienwohnung' _site/de/index.html
+          grep -q 'Apartamento vacacional' _site/es/index.html
           python - <<'PY'
           import json
           import xml.etree.ElementTree as ET
@@ -163,8 +179,11 @@ jobs:
           assert len(events) >= 5, len(events)
           assert cards == len(events), (cards, len(events))
           assert all(item.get('url', '').startswith('https://www.dieppetourisme.com/agenda/') for item in events)
-          print(f'Agenda officiel validé : {len(events)} événements, {cards} cartes HTML.')
-          print('sitemap.xml valide')
+          for lang in ('en', 'de', 'es'):
+              page = Path(f'_site/{lang}/agenda-dieppe.html').read_text(encoding='utf-8')
+              assert page.count('data-official-event="true"') == len(events), lang
+          print(f'Agenda officiel validé : {len(events)} événements, {cards} cartes HTML par langue.')
+          print('Site multilingue et sitemap.xml valides')
           PY
 
       - name: Vérifier la confidentialité des flux iCal
