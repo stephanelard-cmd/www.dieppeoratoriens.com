@@ -48,7 +48,7 @@ jobs:
       - name: Tester le calendrier et les scripts
         run: |
           python -m unittest discover -s source/tests -p "test_*.py"
-          python -m py_compile source/scripts/build_calendar.py source/scripts/fetch_photos.py .github/scripts/seo_optimize.py .github/scripts/perf_optimize.py .github/scripts/home_redirect.py .github/scripts/local_guide.py
+          python -m py_compile source/scripts/build_calendar.py source/scripts/fetch_photos.py .github/scripts/seo_optimize.py .github/scripts/perf_optimize.py .github/scripts/home_redirect.py .github/scripts/local_guide.py .github/scripts/fix_office_alignment.py
 
       - name: Construire le site statique
         run: |
@@ -103,6 +103,7 @@ jobs:
           python .github/scripts/perf_optimize.py
           python .github/scripts/home_redirect.py
           python .github/scripts/local_guide.py _site --finalize
+          python .github/scripts/fix_office_alignment.py _site
           grep -q "Location appartement Dieppe port" _site/index.html
           grep -q '"LodgingBusiness"' _site/index.html
           grep -q 'hreflang="en"' _site/index.html
@@ -119,6 +120,9 @@ jobs:
           grep -q '"Event"' _site/agenda-dieppe.html
           grep -q 'local-guide-home' _site/index.html
           grep -q 'local-guide-v1' _site/assets/css/site.css
+          grep -q 'office-tourism-centering-v2' _site/assets/css/site.css
+          grep -q '#office-tourisme .office-card' _site/assets/css/site.css
+          grep -q '#office-tourisme .contact-list p' _site/assets/css/site.css
           python - <<'PY'
           import xml.etree.ElementTree as ET
           ET.parse('_site/sitemap.xml')
