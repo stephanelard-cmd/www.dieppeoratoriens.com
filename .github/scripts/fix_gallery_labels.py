@@ -35,6 +35,9 @@ LABELS = {
     },
 }
 
+# The generator may substitute the fifth gallery asset with this stable fallback.
+FALLBACK_ALIASES = {"gallery-fallback-5.svg": "photo-5.webp"}
+
 
 def update_jsonld(soup: BeautifulSoup) -> None:
     for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
@@ -43,7 +46,6 @@ def update_jsonld(soup: BeautifulSoup) -> None:
             payload = json.loads(raw)
         except Exception:
             continue
-
         changed = False
         nodes = payload.get("@graph") if isinstance(payload, dict) else None
         if isinstance(nodes, list):
@@ -62,43 +64,36 @@ def update_jsonld(soup: BeautifulSoup) -> None:
 def main() -> int:
     if len(sys.argv) != 2:
         raise SystemExit("Usage: fix_gallery_labels.py <site-root>")
-
     root = Path(sys.argv[1]).resolve()
     page = root / "galerie.html"
     if not page.exists():
         raise SystemExit(f"Galerie introuvable : {page}")
-
     soup = BeautifulSoup(page.read_text(encoding="utf-8"), "html.parser")
     figures = soup.select(".gallery figure")
     if len(figures) != 5:
         raise SystemExit(f"Nombre inattendu de photos dans la galerie : {len(figures)}")
-
     seen: list[str] = []
     for figure in figures:
         image = figure.find("img", attrs={"data-gallery": True})
         caption = figure.find("figcaption")
         if image is None or caption is None:
             raise SystemExit("Structure de galerie incomplète")
-
         filename = Path(str(image.get("src", ""))).name
-        data = LABELS.get(filename)
+        canonical_filename = FALLBACK_ALIASES.get(filename, filename)
+        data = LABELS.get(canonical_filename)
         if data is None:
             raise SystemExit(f"Photo inconnue dans la galerie : {filename}")
         image["alt"] = data["alt"]
         caption.string = data["caption"]
-        seen.append(filename)
-
+        seen.append(canonical_filename)
     expected_order = list(LABELS)
     if seen != expected_order:
         raise SystemExit(f"Ordre des photos inattendu : {seen} au lieu de {expected_order}")
-
     for tag in soup.find_all("meta"):
         if tag.get("name") in {"description", "twitter:description"} or tag.get("property") == "og:description":
             tag["content"] = DESCRIPTION
-
     update_jsonld(soup)
     page.write_text(str(soup), encoding="utf-8")
-
     check = BeautifulSoup(page.read_text(encoding="utf-8"), "html.parser")
     captions = [node.get_text(" ", strip=True) for node in check.select(".gallery figcaption")]
     expected_captions = [LABELS[name]["caption"] for name in expected_order]
@@ -106,7 +101,6 @@ def main() -> int:
         raise SystemExit(f"Légendes finales invalides : {captions}")
     if "Salle d’eau" in page.read_text(encoding="utf-8"):
         raise SystemExit("L’ancienne légende erronée « Salle d’eau » subsiste dans la galerie")
-
     print("Galerie corrigée : " + " | ".join(captions))
     return 0
 
