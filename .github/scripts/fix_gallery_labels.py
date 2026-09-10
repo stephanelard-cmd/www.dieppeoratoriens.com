@@ -35,9 +35,11 @@ LABELS = {
     },
 }
 
-# The generator may substitute the fifth gallery asset with this stable fallback.
-FALLBACK_ALIASES = {"gallery-fallback-5.svg": "photo-5.webp"}
-
+# The generator may substitute a gallery asset with a stable positional fallback.
+FALLBACK_ALIASES = {
+    "gallery-fallback-4.svg": "photo-4.webp",
+    "gallery-fallback-5.svg": "photo-5.webp",
+}
 
 def update_jsonld(soup: BeautifulSoup) -> None:
     for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
@@ -59,7 +61,6 @@ def update_jsonld(soup: BeautifulSoup) -> None:
                     changed = True
         if changed:
             script.string = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-
 
 def main() -> int:
     if len(sys.argv) != 2:
@@ -103,7 +104,6 @@ def main() -> int:
         raise SystemExit("L’ancienne légende erronée « Salle d’eau » subsiste dans la galerie")
     print("Galerie corrigée : " + " | ".join(captions))
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
