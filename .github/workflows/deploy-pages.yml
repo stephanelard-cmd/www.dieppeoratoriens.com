@@ -73,6 +73,7 @@ jobs:
             .github/scripts/sync_official_events.py \
             .github/scripts/render_official_events.py \
             .github/scripts/generate_multilingual_site.py \
+            .github/scripts/classification_2026.py \
             .github/scripts/add_visible_language_flags.py
 
       - name: Construire le site statique
@@ -94,10 +95,6 @@ jobs:
           test -f _site/googlefec5e1e106c9c180.html
           grep -q "google-site-verification: googlefec5e1e106c9c180.html" _site/googlefec5e1e106c9c180.html
           test "$(tr -d '\r\n' < _site/CNAME)" = "dieppeoratoriens.com"
-          grep -q "31 octobre 2024" _site/classement-equipements.html
-          grep -q "153 / 160" _site/classement-equipements.html
-          grep -q "79 points" _site/classement-equipements.html
-          grep -q "jusqu’à cinq voyageurs" _site/index.html
           grep -q "Office de Tourisme Dieppe-Normandie" _site/decouvrir-dieppe.html
           grep -q "Les Ursulines" _site/decouvrir-dieppe.html
 
@@ -131,6 +128,7 @@ jobs:
           python .github/scripts/render_official_events.py \
             --site-root _site \
             --input .cache/dieppe-events.json
+          python .github/scripts/classification_2026.py _site
           grep -q "Location appartement Dieppe port" _site/index.html
           grep -q '"LodgingBusiness"' _site/index.html
           grep -q 'hreflang="en-GB"' _site/index.html
