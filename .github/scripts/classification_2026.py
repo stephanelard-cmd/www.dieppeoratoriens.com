@@ -93,7 +93,8 @@ def patch_home(soup, d, prefix):
     facts = soup.select('.quickfacts .fact')
     replace_text(facts[0].strong, '31 m²')
     replace_text(facts[0].span, d['surface_short'])
-    # Preserve the existing commercial guest count, qualify it next to the rating.
+    # Show the classified capacity here; explain the commercial capacity below.
+    replace_text(facts[1].strong, {'':'2 personnes', '/en':'2 people', '/de':'2 Personen', '/es':'2 personas'}[prefix])
     facts[1].span.clear()
     facts[1].span.append(d['badge'])
     features = soup.select_one('main .feature-list')
