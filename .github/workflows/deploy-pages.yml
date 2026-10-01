@@ -6,8 +6,9 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    # Toutes les 15 minutes, décalé du début d’heure pour limiter les retards de file.
-    - cron: "7,22,37,52 * * * *"
+    # Cible toutes les 15 minutes, décalée du début d’heure. GitHub schedule reste best-effort ;
+    # calendar-sync-watchdog.yml relance ce workflow si aucun succès récent n’est observé.
+    - cron: "7/15 * * * *"
   workflow_dispatch:
 
 permissions:
