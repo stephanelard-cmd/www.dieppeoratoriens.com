@@ -1,0 +1,103 @@
+name: Surveiller la fraîcheur des calendriers
+
+on:
+  schedule:
+    # Filet de sécurité indépendant du workflow principal.
+    - cron: "14,44 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: dieppeoratoriens-calendar-watchdog
+  cancel-in-progress: true
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Vérifier le dernier succès du déploiement
+        id: freshness
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import datetime as dt
+          import json
+          import os
+          import urllib.request
+
+          api = os.environ["GITHUB_API_URL"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {token}",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "dieppeoratoriens-calendar-watchdog",
+          }
+
+          def get_json(url):
+              req = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  return json.load(response)
+
+          workflow = "deploy-pages.yml"
+          latest = get_json(
+              f"{api}/repos/{repo}/actions/workflows/{workflow}/runs?per_page=1"
+          ).get("workflow_runs", [])
+          successful = get_json(
+              f"{api}/repos/{repo}/actions/workflows/{workflow}/runs?status=success&per_page=1"
+          ).get("workflow_runs", [])
+
+          now = dt.datetime.now(dt.timezone.utc)
+          latest_run = latest[0] if latest else None
+          last_success = successful[0] if successful else None
+
+          active_recent = False
+          if latest_run and latest_run.get("status") != "completed":
+              created = dt.datetime.fromisoformat(
+                  latest_run["created_at"].replace("Z", "+00:00")
+              )
+              active_age = (now - created).total_seconds()
+              active_recent = active_age < 20 * 60
+              print(
+                  f"Dernier run actif: {latest_run['status']} depuis "
+                  f"{active_age / 60:.1f} min"
+              )
+
+          if last_success:
+              completed = dt.datetime.fromisoformat(
+                  last_success["updated_at"].replace("Z", "+00:00")
+              )
+              success_age = (now - completed).total_seconds()
+              print(
+                  f"Dernier succès: run #{last_success['run_number']} "
+                  f"il y a {success_age / 60:.1f} min"
+              )
+          else:
+              success_age = float("inf")
+              print("Aucun succès trouvé pour deploy-pages.yml")
+
+          dispatch = (not active_recent) and success_age > 30 * 60
+          print(f"Relance nécessaire: {dispatch}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"dispatch={'true' if dispatch else 'false'}\n")
+          PY
+
+      - name: Relancer la synchronisation si elle est trop ancienne
+        if: steps.freshness.outputs.dispatch == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/deploy-pages.yml/dispatches" \
+            --data '{"ref":"main"}'
+          echo "Synchronisation relancée par workflow_dispatch."
