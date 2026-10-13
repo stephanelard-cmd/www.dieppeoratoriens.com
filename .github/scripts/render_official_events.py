@@ -101,6 +101,38 @@ def run_multilingual_generator(site_root: Path) -> None:
     subprocess.run([sys.executable, str(flag_enhancer), str(site_root)], check=True)
 
 
+FR_AGENDA_H1 = "Agenda de Dieppe : manifestations et événements à venir"
+FR_STAY_LINK = (
+    '<p class="notice agenda-stay-link">Vous préparez un séjour à Dieppe ? '
+    'Découvrez <a href="/hebergement.html">le logement face au port</a> '
+    'et consultez <a href="/disponibilites.html">les disponibilités</a>.</p>'
+)
+
+
+def add_french_stay_transition(site_root: Path) -> None:
+    """Titre explicite et transition vers le logement sur l’agenda français.
+
+    Appliqué après le générateur multilingue : seule la page française change,
+    les pages anglaise, allemande et espagnole gardent leurs titres traduits.
+    """
+    page_path = site_root / "agenda-dieppe.html"
+    soup = BeautifulSoup(page_path.read_text(encoding="utf-8"), "html.parser")
+    hero = soup.select_one(".page-hero")
+    heading = hero.find("h1") if hero else None
+    if heading is None:
+        raise SystemExit("Titre H1 de l’agenda introuvable.")
+    heading.string = FR_AGENDA_H1
+    for old in hero.select(".agenda-stay-link"):
+        old.decompose()
+    stay = BeautifulSoup(FR_STAY_LINK, "html.parser").p
+    lead = hero.select_one(".lead")
+    if lead is not None:
+        lead.insert_after(stay)
+    else:
+        heading.insert_after(stay)
+    page_path.write_text(str(soup), encoding="utf-8")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Injecte l’agenda officiel importé dans la page publique")
     parser.add_argument("--site-root", required=True, type=Path)
@@ -191,6 +223,7 @@ def main() -> int:
     public_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     run_multilingual_generator(args.site_root)
+    add_french_stay_transition(args.site_root)
     print(f"Agenda public rendu avec {len(events)} événements officiels importés.")
     return 0
 
