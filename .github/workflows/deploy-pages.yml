@@ -177,7 +177,17 @@ jobs:
           import xml.etree.ElementTree as ET
           from pathlib import Path
 
-          ET.parse('_site/sitemap.xml')
+          sitemap = ET.parse('_site/sitemap.xml').getroot()
+          ns = {'s': 'http://www.sitemaps.org/schemas/sitemap/0.9', 'x': 'http://www.w3.org/1999/xhtml'}
+          entries = {node.find('s:loc', ns).text: node for node in sitemap.findall('s:url', ns)}
+          for path in ('/', '/hebergement.html', '/classement-equipements.html', '/informations.html'):
+              for language in ('', 'en', 'de', 'es'):
+                  loc = f'https://dieppeoratoriens.com/{language}{path}' if language else f'https://dieppeoratoriens.com{path}'
+                  if language and path == '/':
+                      loc = f'https://dieppeoratoriens.com/{language}/'
+                  assert loc in entries, loc
+              alternates = entries[f'https://dieppeoratoriens.com{path}'].findall('x:link', ns)
+              assert {item.attrib.get('hreflang') for item in alternates} >= {'fr-FR', 'en-GB', 'de-DE', 'es-ES', 'x-default'}, path
           payload = json.loads(Path('_site/assets/data/dieppe-events.json').read_text(encoding='utf-8'))
           html = Path('_site/agenda-dieppe.html').read_text(encoding='utf-8')
           events = payload.get('events', [])
