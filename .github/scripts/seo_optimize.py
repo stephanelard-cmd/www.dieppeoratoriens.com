@@ -158,13 +158,32 @@ def update_assets(photos: list[str]):
     if cal.exists():
         s = cal.read_text(encoding="utf-8").replace("el.className='day';", "el.className='day';el.setAttribute('role','gridcell');")
         cal.write_text(s, encoding="utf-8")
-    urls = [("/","daily"),("/hebergement.html","monthly"),("/galerie.html","monthly"),("/disponibilites.html","daily"),("/avis-localisation.html","monthly"),("/informations.html","monthly"),("/classement-equipements.html","yearly"),("/mentions-legales.html","yearly"),("/confidentialite.html","yearly"),("/en/","monthly")]
+    urls = [("/", "daily"),("/hebergement.html","monthly"),("/galerie.html","monthly"),("/disponibilites.html","daily"),("/avis-localisation.html","monthly"),("/informations.html","monthly"),("/classement-equipements.html","yearly"),("/mentions-legales.html","yearly"),("/confidentialite.html","yearly")]
+    localized_pages = [("/", "daily"),("/hebergement.html","monthly"),("/classement-equipements.html","yearly"),("/informations.html","monthly")]
+    for language in ("en", "de", "es"):
+        urls.extend((f"/{language}{path}", freq) for path, freq in localized_pages)
     today = date.today().isoformat()
     out = ['<?xml version="1.0" encoding="UTF-8"?>','<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1" xmlns:xhtml="http://www.w3.org/1999/xhtml">']
+    alternate_paths = {path for path, _ in localized_pages}
     for loc,freq in urls:
         out += ['<url>',f'<loc>{BASE}{loc}</loc><lastmod>{today}</lastmod><changefreq>{freq}</changefreq>']
-        if loc == "/":
-            out += [f'<xhtml:link rel="alternate" hreflang="fr-FR" href="{BASE}/"/>',f'<xhtml:link rel="alternate" hreflang="en" href="{BASE}/en/"/>',f'<xhtml:link rel="alternate" hreflang="x-default" href="{BASE}/"/>']
+        language_path = loc
+        for language in ("en", "de", "es"):
+            prefix = f"/{language}"
+            if language_path == prefix + "/":
+                language_path = "/"
+                break
+            if language_path.startswith(prefix + "/"):
+                language_path = language_path[len(prefix):]
+                break
+        if language_path in alternate_paths:
+            out += [
+                f'<xhtml:link rel="alternate" hreflang="fr-FR" href="{BASE}{language_path}"/>',
+                f'<xhtml:link rel="alternate" hreflang="en-GB" href="{BASE}/en{language_path}"/>',
+                f'<xhtml:link rel="alternate" hreflang="de-DE" href="{BASE}/de{language_path}"/>',
+                f'<xhtml:link rel="alternate" hreflang="es-ES" href="{BASE}/es{language_path}"/>',
+                f'<xhtml:link rel="alternate" hreflang="x-default" href="{BASE}{language_path}"/>',
+            ]
         if loc in {"/", "/galerie.html"}:
             out += [f'<image:image><image:loc>{urljoin(BASE,p)}</image:loc></image:image>' for p in photos]
         out.append('</url>')
