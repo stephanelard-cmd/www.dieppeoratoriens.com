@@ -203,7 +203,19 @@ def apply(root):
             continue
         d = COPY[lang]
         prefix = '' if lang == 'fr' else '/' + lang
+        # Link to the canonical language homepages without a redirect hop.
+        normalized_links = False
+        for link in soup.find_all('a', href=True):
+            href = link['href']
+            parsed = urlparse(href)
+            if not parsed.scheme and not parsed.netloc and parsed.path in {
+                '/index.html', '/en/index.html', '/de/index.html', '/es/index.html'
+            }:
+                link['href'] = href.replace(parsed.path, parsed.path[:-10], 1)
+                normalized_links = True
         if soup.select_one('meta[name="classification-source-date"]'):
+            if normalized_links:
+                path.write_text(str(soup), encoding='utf-8')
             continue
         for node in list(soup.find_all(string=True)):
             if node.parent.name not in ('script', 'style') and '31–33' in str(node):
@@ -241,6 +253,11 @@ def apply(root):
                 if modified is None:
                     modified = ET.SubElement(url, '{'+ns['s']+'}lastmod')
                 modified.text = DATE
+            elif filename not in {'agenda-dieppe.html', 'disponibilites.html'}:
+                # A calendar rebuild is not an editorial update of static pages.
+                # Omit lastmod when the actual content modification date is unknown.
+                for modified in list(url.findall('s:lastmod', ns)):
+                    url.remove(modified)
         tree.write(sitemap, encoding='utf-8', xml_declaration=True)
     print(f'September 2026 inspection applied to {count} pages.')
 
