@@ -11,6 +11,7 @@ from urllib.parse import quote_plus
 from bs4 import BeautifulSoup
 
 BASE = "https://dieppeoratoriens.com"
+DEFAULT_OG_IMAGE = BASE + "/assets/photos/photo-1.webp"
 OFFICE_URL = "https://www.dieppetourisme.com/sejourner/pratique/loffice-de-tourisme/"
 AGENDA_URL = "https://www.dieppetourisme.com/agenda/"
 RESTAURANTS_URL = "https://www.dieppetourisme.com/sejourner/des-restaurants-pour-tous-les-gouts/tous-les-restaurants/"
@@ -404,6 +405,9 @@ def set_metadata(soup: BeautifulSoup, title: str, description: str, canonical: s
         tag = soup.new_tag("title")
         tag.string = title
         head.append(tag)
+    # Conserver l’image de partage du modèle (photo principale) avant de purger les balises og:/twitter:.
+    existing_image = head.find("meta", attrs={"property": "og:image"})
+    og_image = (existing_image.get("content") if existing_image else "") or DEFAULT_OG_IMAGE
     for tag in list(head.find_all("meta")):
         if tag.get("name") in {"description", "robots"} or tag.get("property", "").startswith("og:") or tag.get("name", "").startswith("twitter:"):
             tag.decompose()
@@ -423,9 +427,14 @@ def set_metadata(soup: BeautifulSoup, title: str, description: str, canonical: s
     canon["rel"] = "canonical"
     canon["href"] = canonical
     head.append(canon)
-    for prop, content in (("og:type", "website"), ("og:site_name", "Oratoriens Henri IV Dieppe"), ("og:locale", "fr_FR"), ("og:title", title), ("og:description", description), ("og:url", canonical)):
+    for prop, content in (("og:type", "website"), ("og:site_name", "Oratoriens Henri IV Dieppe"), ("og:locale", "fr_FR"), ("og:title", title), ("og:description", description), ("og:url", canonical), ("og:image", og_image)):
         tag = soup.new_tag("meta")
         tag["property"] = prop
+        tag["content"] = content
+        head.append(tag)
+    for name, content in (("twitter:card", "summary_large_image"), ("twitter:title", title), ("twitter:description", description), ("twitter:image", og_image)):
+        tag = soup.new_tag("meta")
+        tag["name"] = name
         tag["content"] = content
         head.append(tag)
     structured = soup.new_tag("script")
